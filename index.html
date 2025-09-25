@@ -175,7 +175,7 @@
     <script>
     // --- CONFIGURAÇÕES E ESTADO GLOBAL ---
     const testData = {
-        version: "MAT-Digital 2.2.0",
+        version: "MAT-Digital 2.2.1",
         blocks: {
             codificacao: [
                 { type: 'instruction', text: 'Agora, vou dizer 5 palavras. Ouça com atenção e tente memorizá-las.' },
@@ -275,7 +275,7 @@
     let state = {};
     let currentAudio = null;
 
-    // --- SISTEMA DE TTS MELHORADO ---
+    // --- SISTEMA DE TTS ROBUSTO ---
     class TTSManager {
         constructor() {
             this.cache = new Map();
@@ -285,23 +285,19 @@
         async speak(text, onEndCallback = null) {
             if (this.isPlaying && currentAudio) {
                 currentAudio.pause();
+                currentAudio.src = '';
                 currentAudio = null;
                 this.isPlaying = false;
             }
 
             try {
                 const cacheKey = `google_translate_${text}`;
-                let audioUrl;
-
-                if (this.cache.has(cacheKey)) {
-                    audioUrl = this.cache.get(cacheKey);
-                } else {
+                let audioUrl = this.cache.get(cacheKey);
+                if (!audioUrl) {
                     audioUrl = this.getGoogleTranslateAudio(text);
                     this.cache.set(cacheKey, audioUrl);
                 }
-
                 await this.playAudio(text, audioUrl, onEndCallback);
-
             } catch (error) {
                 console.error('Erro no TTS (Google Translate):', error);
                 await this.useBrowserTTS(text, onEndCallback);
@@ -323,20 +319,27 @@
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'pt-BR';
             utterance.rate = 1.1;
+
+            let hasEnded = false;
+            const onEnd = () => {
+                if (hasEnded) return;
+                hasEnded = true;
+                if (onEndCallback) onEndCallback();
+            };
+
+            utterance.onend = onEnd;
+            utterance.onerror = (e) => {
+                console.error("SpeechSynthesis Error:", e);
+                onEnd(); // Garante que o teste continue mesmo em caso de erro na fala.
+            };
             
             const setVoice = () => {
                 const voices = window.speechSynthesis.getVoices();
-                // Prioriza vozes de alta qualidade (Safari/iOS) e depois padrões pt-BR
                 const ptVoices = voices.filter(v => v.lang.startsWith('pt-BR'));
                 const premiumVoice = ptVoices.find(v => v.name.includes('Luciana') || v.name.includes('Felipe')); // Nomes comuns em sistemas Apple
                 const defaultVoice = ptVoices.find(v => v.default);
                 
                 utterance.voice = premiumVoice || defaultVoice || ptVoices[0];
-
-                if (onEndCallback) {
-                    utterance.onend = onEndCallback;
-                }
-                
                 window.speechSynthesis.speak(utterance);
             };
 
@@ -349,25 +352,34 @@
 
         async playAudio(originalText, url, onEndCallback) {
             return new Promise((resolve) => {
-                currentAudio = new Audio(url);
-                this.isPlaying = true;
-                currentAudio.onended = () => {
+                let hasFinished = false;
+
+                const finishOnce = () => {
+                    if (hasFinished) return;
+                    hasFinished = true;
                     this.isPlaying = false;
+                    if (currentAudio) {
+                        currentAudio.pause();
+                        currentAudio.src = '';
+                        currentAudio = null;
+                    }
                     if (onEndCallback) onEndCallback();
                     resolve();
                 };
-                currentAudio.onerror = (e) => {
-                    console.error('Erro ao tocar áudio da API Google:', e);
-                    this.isPlaying = false;
-                    this.useBrowserTTS(originalText, onEndCallback);
-                    resolve();
+
+                const handleError = (e, sourceType) => {
+                    if (hasFinished) return; // Previne múltiplos fallbacks
+                    console.error(`Erro no áudio (${sourceType}):`, e);
+                    this.useBrowserTTS(originalText, finishOnce);
                 };
-                currentAudio.play().catch(error => {
-                    console.error('Erro ao iniciar reprodução:', error);
-                    this.isPlaying = false;
-                    this.useBrowserTTS(originalText, onEndCallback);
-                    resolve();
-                });
+
+                currentAudio = new Audio(url);
+                this.isPlaying = true;
+
+                currentAudio.onended = finishOnce;
+                currentAudio.onerror = (e) => handleError(e, 'onerror');
+                
+                currentAudio.play().catch(e => handleError(e, 'play.catch'));
             });
         }
     }
@@ -549,10 +561,8 @@
             if (isCorrect) {
                 state.scores.recuperacao_pistas++;
             }
-            // ESSENCIAL: Marca o item como 'tentado' para avançar, independentemente da resposta
             originalItem.recalled = 'attempted';
         }
-        // Re-render para mostrar a próxima pergunta com pista ou avançar para os resultados
         render();
     };
 
