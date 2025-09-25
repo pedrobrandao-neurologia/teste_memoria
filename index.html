@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>M@T Digital — Teste de Alteração da Memória (v3.0)</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root{ --primary:#3b82f6; --primary-600:#2563eb; }
@@ -41,12 +43,12 @@
     // ==============================
     // CONFIGURAÇÃO DO TESTE
     // ==============================
-    const TEST_VERSION = 'MAT-Digital v3.0.0';
-    const ISI_MS = 600;            // Intervalo entre estímulos (palavras)
-    const SENTENCE_ISI_MS = 1200;  // Intervalo após frase
+    const TEST_VERSION = 'MAT-Digital v3.0.1';
+    const ISI_MS = 1000;         // Intervalo entre estímulos (palavras)
+    const SENTENCE_ISI_MS = 2000;  // Intervalo após frase
     const MAX_FREE_RECALL_WORDS = 5;
 
-    // Estrutura de blocos (conteúdo semelhante ao seu, com ajustes mínimos)
+    // Estrutura de blocos
     const blocks = {
       codificacao: [
         {type:'instruction', text:'Agora vou dizer 5 palavras. Ouça com atenção e tente memorizá-las.'},
@@ -101,7 +103,6 @@
       ]
     };
 
-    // Fluxo inclui blocos especiais não armazenados em "blocks"
     const FLOW = ['codificacao','orientacao','semantica','free_recall','cued_recall'];
 
     // ==============================
@@ -116,7 +117,7 @@
       answers:{}, scores:{ codificacao:0, orientacao:0, semantica:0, recuperacao_livre:0, recuperacao_pistas:0 },
       itemsToRecall:[], recallPhase:'words',
       selection:null, lastShownAt:null, rtLog:[], qc:[],
-      ttsReady:false, // desbloqueio por gesto do usuário
+      ttsReady:false,
     };
 
     // ==============================
@@ -179,7 +180,7 @@
           const u = new SpeechSynthesisUtterance(text);
           u.lang='pt-BR'; u.rate=rate; u.voice=this.pickVoice();
           u.onend=()=>{ if (badge) badge.style.display='none'; if (onend) onend(); res(); };
-          u.onerror=()=>{ if (badge) badge.style.display='none'; res(); };
+          u.onerror=()=>{ if (badge) badge.style.display='none'; if (onend) onend(); res(); }; // Garante continuação em erro
           window.speechSynthesis.speak(u);
         }));
       }
@@ -191,12 +192,10 @@
     function header(title, showProgress=true){
       let pct = 0;
       if (showProgress && state.block){
-        // total de itens = soma de blocos "blocks" + etapas especiais (2 etapas no recall)
         const totalStandard = Object.values(blocks).reduce((acc, arr)=> acc+arr.length,0);
         const special = 2; // free_recall + cued_recall
         const total = totalStandard + special;
         const currentBlockIndex = FLOW.indexOf(state.block);
-        // itens completados em blocos anteriores (apenas os existentes em blocks)
         const donePrev = FLOW.slice(0,currentBlockIndex).reduce((acc,b)=> acc + (blocks[b]?.length||1),0);
         pct = Math.min(100, ((donePrev + (state.itemIndex||0)) / total) * 100);
       }
@@ -297,9 +296,7 @@
     function renderQuestionBlock(blockName){
       const arr = blocks[blockName];
       const item = arr[state.itemIndex];
-      if (!item) { // segurança
-        return goNext();
-      }
+      if (!item) { return goNext(); }
       state.selection = null;
       state.lastShownAt = performance.now();
 
@@ -368,12 +365,10 @@
     }
 
     // ==============================
-    // EVOCAÇÃO LIVRE
+    // EVOCAÇÃO LIVRE
     // ==============================
     function buildRecallPool(){
-      // Palavras a recordar
       const words = blocks.codificacao.filter(i=>i.type==='mc').map(i=>({cue:i.cue, answer:i.answer, source:'word', recalled:null}));
-      // Frases
       const sentSets = blocks.codificacao.filter(i=>i.type==='mc-sent');
       const sentItems = sentSets.flatMap((s,idx)=> s.recall_items.map(x=>({cue:`Da frase sobre ${idx===0?'os gatos':'o garoto'}`, answer:x, source:`sentence_${idx+1}`, recalled:null})));
       state.itemsToRecall = [...words, ...sentItems];
@@ -420,7 +415,7 @@
     }
 
     // ==============================
-    // EVOCAÇÃO COM PISTAS
+    // EVOCAÇÃO COM PISTAS
     // ==============================
     function renderCuedRecall(){
       const pending = state.itemsToRecall.find(i=>!i.recalled);
@@ -526,6 +521,81 @@
       const a = document.createElement('a');
       a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     }
+    
+    function exportPDF(){
+      const { jsPDF } = window.jspdf;
+      const data = exportData();
+      const doc = new jsPDF();
+      const timestamp = new Date().toISOString().replace(/[:.]/g,'-');
+
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text("M@T Digital - Relatório de Resultados", 105, 20, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.version, 105, 28, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text(`Data: ${new Date(data.testDate).toLocaleString('pt-BR')}`, 20, 45);
+      const duration = data.durationSec;
+      const mm = Math.floor(duration/60);
+      const ss = duration % 60;
+      doc.text(`Duração: ${mm}m ${ss}s`, 20, 53);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Perfil do Participante", 20, 68);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Idade: ${data.profile.age} anos`, 20, 76);
+      doc.text(`Escolaridade: ${data.profile.education} anos`, 20, 84);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Pontuação por Domínio", 20, 100);
+
+      const betterLabels = {
+        codificacao: 'Memorização (Codificação)',
+        orientacao: 'Orientação no Tempo',
+        semantica: 'Conhecimentos Gerais',
+        recuperacao_livre: 'Evocação Livre',
+        recuperacao_pistas: 'Evocação com Pistas',
+        total: 'PONTUAÇÃO TOTAL'
+      };
+      const tableData = Object.entries(data.scores).map(([key, value]) => {
+        return [ betterLabels[key] || key, `${value.score}`, `${value.max}`];
+      });
+
+      doc.autoTable({
+        startY: 105,
+        head: [['Domínio', 'Pontuação', 'Máximo']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [59, 130, 246] },
+        didDrawCell: (data) => {
+          if (data.row.index === tableData.length - 1) { // Total row
+            doc.setFont(undefined, 'bold');
+          }
+        }
+      });
+      if (data.qc.length > 0) {
+        let y = doc.autoTable.previous.finalY + 15;
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Observações de Qualidade:", 20, y);
+        y += 8;
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        data.qc.forEach(flag => {
+          if (y > 270) { doc.addPage(); y = 20; }
+          const lines = doc.splitTextToSize(`• ${flag}`, 170);
+          doc.text(lines, 25, y);
+          y += lines.length * 5;
+        });
+      }
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text("Este relatório é para fins de rastreio. A interpretação deve ser realizada por profissional qualificado.", 105, 285, { align: 'center' });
+      doc.save(`MAT_Digital_${timestamp}.pdf`);
+    }
+
 
     // ==============================
     // RESULTADOS
@@ -684,11 +754,11 @@
         const d = exportData(); const ts = new Date().toISOString().replace(/[:.]/g,'-');
         let csv = 'Dominio,Pontuacao,Maximo,Percentual\n';
         const rows = [ ['Codificacao', d.scores.codificacao.score, d.scores.codificacao.max],
-                       ['Orientacao', d.scores.orientacao.score, d.scores.orientacao.max],
-                       ['Semantica', d.scores.semantica.score, d.scores.semantica.max],
-                       ['Recuperacao Livre', d.scores.recuperacao_livre.score, d.scores.recuperacao_livre.max],
-                       ['Recuperacao Pistas', d.scores.recuperacao_pistas.score, d.scores.recuperacao_pistas.max],
-                       ['Total', d.scores.total.score, d.scores.total.max] ];
+                          ['Orientacao', d.scores.orientacao.score, d.scores.orientacao.max],
+                          ['Semantica', d.scores.semantica.score, d.scores.semantica.max],
+                          ['Recuperacao Livre', d.scores.recuperacao_livre.score, d.scores.recuperacao_livre.max],
+                          ['Recuperacao Pistas', d.scores.recuperacao_pistas.score, d.scores.recuperacao_pistas.max],
+                          ['Total', d.scores.total.score, d.scores.total.max] ];
         rows.forEach(([k,sc,max])=>{ const pct=((sc/max)*100).toFixed(1)+'%'; csv+=`${k},${sc},${max},${pct}\n`; });
         csv += '\nPerfil\n';
         csv += `Idade,${d.profile.age}\n`;
@@ -697,31 +767,7 @@
         download(`MAT_Digital_${ts}.csv`, csv, 'text/csv;charset=utf-8;');
       }
       else if (act==='export-pdf'){
-        // Gera PDF simples via canvas print (sem libs externas, para máxima compatibilidade)
-        // Dica: para relatórios completos, conectar jsPDF externamente; aqui mantemos mínimo.
-        const d = exportData(); const ts = new Date().toISOString().replace(/[:.]/g,'-');
-        const win = window.open('', '_blank');
-        const html = `<!doctype html><title>Relatório</title><meta charset="utf-8" />
-          <style>body{font-family:Arial,Helvetica,sans-serif;padding:24px} h1{font-size:20px}
-          table{border-collapse:collapse;margin-top:10px} td,th{border:1px solid #ccc;padding:6px 10px}
-          .muted{color:#666;font-size:12px}</style>
-          <h1>M@T Digital — Relatório</h1>
-          <div class="muted">${TEST_VERSION}</div>
-          <p><b>Data:</b> ${new Date(d.testDate||Date.now()).toLocaleString('pt-BR')}</p>
-          <p><b>Idade:</b> ${d.profile.age} &nbsp; <b>Escolaridade:</b> ${d.profile.education}</p>
-          <p><b>Duração:</b> ${Math.floor(d.durationSec/60)}m ${d.durationSec%60}s</p>
-          <table><thead><tr><th>Domínio</th><th>Pontuação</th><th>Máximo</th></tr></thead>
-          <tbody>
-           <tr><td>Codificação</td><td>${d.scores.codificacao.score}</td><td>${d.scores.codificacao.max}</td></tr>
-           <tr><td>Orientação</td><td>${d.scores.orientacao.score}</td><td>${d.scores.orientacao.max}</td></tr>
-           <tr><td>Semântica</td><td>${d.scores.semantica.score}</td><td>${d.scores.semantica.max}</td></tr>
-           <tr><td>Evocação Livre</td><td>${d.scores.recuperacao_livre.score}</td><td>${d.scores.recuperacao_livre.max}</td></tr>
-           <tr><td>Evocação com Pistas</td><td>${d.scores.recuperacao_pistas.score}</td><td>${d.scores.recuperacao_pistas.max}</td></tr>
-           <tr><td><b>Total</b></td><td><b>${d.scores.total.score}</b></td><td><b>${d.scores.total.max}</b></td></tr>
-          </tbody></table>
-          ${d.qc.length?`<h3>Observações de qualidade</h3><ul>${d.qc.map(x=>`<li>${x}</li>`).join('')}</ul>`:''}
-          <p class="muted">Este é um teste de rastreio; interpretar clinicamente com cautela.</p>`;
-        win.document.write(html); win.document.close(); win.focus(); win.print();
+        exportPDF();
       }
     });
 
