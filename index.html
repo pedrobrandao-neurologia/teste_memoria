@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>M@T Digital — Teste de Alteração da Memória (v3.0)</title>
+  <title>M@T Digital — Teste de Alteração da Memória (v1.0.4)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
@@ -34,6 +34,8 @@
     .badge-audio{display:none;align-items:center;gap:.4rem;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;padding:.25rem .6rem;border-radius:9999px;font-size:.875rem}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
     .pulse{animation:pulse 2s infinite}
+    .badge-mic{display:none;align-items:center;gap:.4rem;background:#dcfce7;border:1px solid #22c55e;color:#166534;padding:.25rem .6rem;border-radius:9999px;font-size:.875rem}
+    .record-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.2s infinite}
   </style>
 </head>
 <body class="min-h-screen p-4 grid place-items-center">
@@ -43,7 +45,7 @@
     // ==============================
     // CONFIGURAÇÃO DO TESTE
     // ==============================
-    const TEST_VERSION = 'MAT-Digital v3.0.1';
+    const TEST_VERSION = 'MAT-Digital 1.0.4';
     const ISI_MS = 1000;         // Intervalo entre estímulos (palavras)
     const SENTENCE_ISI_MS = 2000;  // Intervalo após frase
     const MAX_FREE_RECALL_WORDS = 5;
@@ -68,7 +70,7 @@
         {type:'mc-sent', ref:'Trinta gatos cinzas comeram todo o queijo.', questions:[
           {prompt:'Da frase sobre os gatos, quantos gatos eram?', options:['Vinte','Trinta','Quarenta'], answer:'Trinta'},
           {prompt:'Qual era a cor dos gatos?', options:['Pretos','Brancos','Cinzas'], answer:'Cinzas'},
-          {prompt:'O que eles comeram?', options:['Ração','Peixe','Queijo'], answer:'Queijo'}
+          {prompt:'O que eles comeram?', options:['Peixe','Rato','Queijo'], answer:'Queijo'}
         ], recall_items:['Trinta','Cinzas','Queijo']},
         {type:'instruction', text:'Agora ouça a segunda frase.'},
         {type:'sentence', sentence:'Um garoto chamado Luís estava brincando com sua bicicleta.'},
@@ -90,9 +92,9 @@
         {type:'mc', prompt:'Quantas gramas há em um quarto de quilo?', options:['250g','500g','100g','750g','1000g'], answer:'250g'},
         {type:'mc', prompt:'Qual é o oitavo mês do ano?', options:['Agosto','Setembro','Julho','Outubro','Junho'], answer:'Agosto'},
         {type:'mc', prompt:'Em que mês comemoramos o Natal?', options:['Novembro','Janeiro','Dezembro','Fevereiro','Março'], answer:'Dezembro'},
-        {type:'mc', prompt:'Se o ponteiro grande de um relógio está no 11, quantos minutos ele marca?', options:['55 minutos','11 minutos','50 minutos','5 minutos','60 minutos'], answer:'55 minutos'},
+        {type:'mc', prompt:'Se o relógio marca exatamente 11 horas, em qual número o ponteiro grande (minutos) deve estar?', options:['12','11','1','5','6'], answer:'12'},
         {type:'mc', prompt:'Qual estação do ano vem depois do verão?', options:['Outono','Inverno','Primavera'], answer:'Outono'},
-        {type:'mc', prompt:'Que animal rasteja e não tem patas?', options:['Cachorro','Pássaro','Serpente','Peixe','Minhoca'], answer:'Serpente'},
+        {type:'mc', prompt:'Que animal rasteja e não tem patas?', options:['Cachorro','Pássaro','Serpente','Peixe','Pinguim'], answer:'Serpente'},
         {type:'mc', prompt:'Azeitona vem de qual árvore?', options:['Videira','Oliveira','Macieira','Cerejeira','Laranjeira'], answer:'Oliveira'},
         {type:'mc', prompt:'De qual fruto se faz o chocolate?', options:['Café','Cacau','Morango','Cana-de-açúcar','Soja'], answer:'Cacau'},
         {type:'mc', prompt:'Qual o triplo de doze?', options:['24','36','48','30','15'], answer:'36'},
@@ -103,6 +105,115 @@
       ]
     };
 
+    // ==============================
+    // ASR — Reconhecimento de voz (Web Speech API)
+    // ==============================
+    const asr = {
+      SR: null, rec: null,
+      init(){
+        this.SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+        if (typeof state !== 'undefined' && state.speech){
+          state.speech.supported = !!this.SR;
+        }
+      },
+      start({mode}){
+        if (!this.SR){ alert('Reconhecimento de voz não disponível neste navegador.'); return; }
+        if (state.speech.listening){ this.stop(); }
+        this.rec = new this.SR();
+        this.rec.lang = 'pt-BR';
+        this.rec.interimResults = true;
+        this.rec.continuous = /recall/.test(mode);
+        state.speech.listening = true;
+        const mic = $('#badge-mic'); if (mic) mic.style.display='inline-flex';
+        const transcriptEl = $('#voice-transcript');
+        const finalize = (finalText) => {
+          state.speech.utterances++;
+          state.speech.log.push({t:Date.now(), text:finalText, mode});
+          handleVoice(finalText, mode);
+          if (!this.rec.continuous){ this.stop(); }
+        };
+        this.rec.onresult = (e)=>{
+          let interim='', final='';
+          for (let i = e.resultIndex; i < e.results.length; i++){
+            const r = e.results[i];
+            if (r.isFinal) final += r[0].transcript;
+            else interim += r[0].transcript;
+          }
+          if (transcriptEl){ transcriptEl.textContent = (final||interim).trim(); }
+          if (final){ finalize(final.trim()); }
+        };
+        this.rec.onerror = ()=>{ this.stop(); };
+        this.rec.onend = ()=>{
+          state.speech.listening=false;
+          const badge = $('#badge-mic'); if (badge) badge.style.display='none';
+        };
+        this.rec.start();
+      },
+      stop(){
+        try{ this.rec && this.rec.stop(); }catch(_){ }
+        state.speech.listening=false;
+        const badge = $('#badge-mic'); if (badge) badge.style.display='none';
+      }
+    };
+
+    function handleVoice(text, mode){
+      const s = normalize(text);
+      if (/^(fim|finalizar|pronto)$/.test(s)){
+        if (mode==='recall-words'){ $('[data-action="commit-recall-words"]')?.click(); return; }
+        if (mode==='recall-sent'){ $('[data-action="commit-recall-sent"]')?.click(); return; }
+      }
+      if (mode==='mc' || mode==='cued'){
+        const buttons = $$('.option-grid .option-btn');
+        const opts = buttons.map(b=>b.textContent.trim());
+        const idx = bestMatch(s, opts);
+        const btn = buttons[idx];
+        if (btn){
+          btn.click();
+          const submit = $('[data-action="submit"], [data-action="submit-cued"]');
+          submit?.click?.();
+        }
+        return;
+      }
+      if (mode==='input'){
+        const n = parsePtNumber(s);
+        if (!Number.isNaN(n)){
+          const inp = $('#free-input'); if (inp){ inp.value = String(n); }
+          $('[data-action="submit"]')?.click();
+        }
+        return;
+      }
+      if (mode==='recall-words' || mode==='recall-sent'){
+        const grid = $$('#recall-grid .option-btn');
+        grid.forEach(b=>{
+          const txt = b.textContent.trim();
+          const match = lev(s, txt) <= 1 || s.split(' ').some(tok=>lev(tok, txt) <= 1);
+          if (match){
+            if (!b.classList.contains('selected')){
+              if (b.getAttribute('data-kind')==='word'){
+                const sel = $$('#recall-grid .option-btn.selected');
+                if (sel.length >= MAX_FREE_RECALL_WORDS) return;
+              }
+              b.click();
+            }
+          }
+        });
+      }
+    }
+
+    function refreshVoiceUI(){
+      const transcript = $('#voice-transcript');
+      if (transcript) transcript.textContent = '';
+      const starters = $$('.btn[data-action="voice-start"]');
+      starters.forEach(btn=>{
+        if (!state.speech.supported){
+          btn.disabled = true;
+          btn.title = 'Reconhecimento de voz indisponível neste dispositivo';
+        } else {
+          btn.disabled = false;
+          btn.removeAttribute('title');
+        }
+      });
+    }
     const FLOW = ['codificacao','orientacao','semantica','free_recall','cued_recall'];
 
     // ==============================
@@ -118,6 +229,9 @@
       itemsToRecall:[], recallPhase:'words',
       selection:null, lastShownAt:null, rtLog:[], qc:[],
       ttsReady:false,
+      orientationReference:null,
+      recallStats:null,
+      speech:{ supported:false, listening:false, utterances:0, log:[] }
     };
 
     // ==============================
@@ -126,9 +240,82 @@
     const $ = (sel,root=document) => root.querySelector(sel);
     const $$ = (sel,root=document) => [...root.querySelectorAll(sel)];
     const shuffle = (arr)=>{const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+    const normalize = (value)=>{
+      if (value === null || value === undefined) return '';
+      let str = String(value).trim();
+      if (!str) return '';
+
+      const numericCandidate = str.replace(',', '.');
+      if (/^-?\d+(?:[\.,]\d+)?$/.test(str.replace(/\s+/g,''))){
+        const num = Number(numericCandidate);
+        if (!Number.isNaN(num)){
+          return Number.isInteger(num) ? String(num) : String(num).replace(/\.0+$/,'');
+        }
+      }
+
+      return str
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'')
+        .replace(/[^a-z0-9]+/gi,' ')
+        .trim()
+        .toLowerCase();
+    };
+    const answersMatch = (a, b) => normalize(a) === normalize(b);
+
+    // Conversor simples de números em pt-BR
+    function parsePtNumber(str){
+      if (!str) return NaN;
+      const s = normalize(str).replace(/\bde\b/g,' ').replace(/\s+/g,' ').trim();
+      if (/^\d+$/.test(s)) return parseInt(s,10);
+      const units = {zero:0,um:1,uma:1,dois:2,duas:2,tres:3,quatro:4,cinco:5,seis:6,sete:7,oito:8,nove:9,dez:10,onze:11,doze:12,treze:13,quatorze:14,catorze:14,quinze:15,dezesseis:16,dezassete:17,dez7:17,dez7e:17,dezessete:17,dezoito:18,dezenove:19};
+      const tens  = {vinte:20,trinta:30,quarenta:40,cinquenta:50,sessenta:60,setenta:70,oitenta:80,noventa:90};
+      const hundreds = {cem:100,cento:100,duzentos:200,trezentos:300,quatrocentos:400,quinhentos:500,seiscentos:600,setecentos:700,oitocentos:800,novecentos:900};
+      let total = 0, current = 0;
+      const tokens = s.split(' ');
+      for (let t of tokens){
+        if (t==='e') continue;
+        if (t in units){ current += units[t]; continue; }
+        if (t in tens){ current += tens[t]; continue; }
+        if (t in hundreds){ current += hundreds[t]; continue; }
+        if (t==='mil'){ total += (current||1)*1000; current = 0; continue; }
+      }
+      const val = total + current;
+      return val || NaN;
+    }
+
+    function lev(a,b){
+      a = normalize(a); b = normalize(b);
+      const m=a.length,n=b.length; const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
+      for(let i=0;i<=m;i++) dp[i][0]=i;
+      for(let j=0;j<=n;j++) dp[0][j]=j;
+      for(let i=1;i<=m;i++){
+        for(let j=1;j<=n;j++){
+          const cost = a[i-1]===b[j-1]?0:1;
+          dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+cost);
+        }
+      }
+      return dp[m][n];
+    }
+
+    function bestMatch(spoken, options){
+      const s = normalize(spoken);
+      const nmap = { '1':['1','um','uma','primeira'], '2':['2','dois','duas','segunda'], '3':['3','tres','terceira'], '4':['4','quatro','quarta'], '5':['5','cinco','quinta'] };
+      for (const [k,forms] of Object.entries(nmap)){
+        if (forms.some(f=>s.includes(f))) return parseInt(k,10)-1;
+      }
+      if (/(nao (sei|lembro|recordo)|esqueci)/.test(s)) {
+        const idx = options.findIndex(o=>normalize(o).includes('nao me recordo'));
+        if (idx>=0) return idx;
+      }
+      let best=-1,score=1e9;
+      options.forEach((o,i)=>{ const d=lev(s,o); if (d<score){score=d;best=i;} });
+      return best;
+    }
 
     const dynamic = (kind)=>{
-      const now = new Date();
+      const now = (state.block === 'orientacao' && state.orientationReference)
+        ? new Date(state.orientationReference)
+        : new Date();
       const week = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
       const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
       const m = now.getMonth();
@@ -148,41 +335,139 @@
       }
     };
 
+    const computeRecallStats = ()=>{
+      const totalTargets = state.itemsToRecall.length;
+      const freeHits = state.itemsToRecall.filter(i=>i.recalled === 'free').length;
+      const cueHits = state.itemsToRecall.filter(i=>i.recalled === 'cued').length;
+      const missed = state.itemsToRecall.filter(i=>i.recalled !== 'free' && i.recalled !== 'cued').length;
+      const eligible = Math.max(0, totalTargets - freeHits);
+      return { totalTargets, freeHits, cueHits, missed, eligible };
+    };
+
+    function summarizeRecall(){
+      const stats = computeRecallStats();
+      const enriched = { ...stats, autoAwarded: stats.eligible === 0 };
+      state.recallStats = enriched;
+      state.scores.recuperacao_livre = stats.freeHits;
+      state.scores.recuperacao_pistas = stats.eligible === 0 ? stats.totalTargets : stats.cueHits;
+      return enriched;
+    }
+
     // ==============================
     // TTS (APENAS Web Speech API — sem serviços externos)
     // ==============================
     const tts = {
       enabled: true,
+      selectedVoice: null,
       speakQueue: Promise.resolve(),
+      readyPromise: null,
+      preferredVoicePatterns: [
+        /Microsoft (?:Maria|Antonio|Leila|Vit[oó]ria).*Natural.*Portuguese \(Brazil\)/i,
+        /Microsoft .+Portuguese \(Brazil\)/i,
+        /Google (?:portugu[êe]s do Brasil|brasileiro)/i,
+        /Google.*pt-BR/i,
+        /Luciana/i,
+        /Felipe/i
+      ],
       ensureReady(){
-        if (!('speechSynthesis' in window)) { this.enabled=false; return; }
-        try {
-          // desbloqueio com gesto: falar curto após botão "Iniciar"
-          window.speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance('');
-          u.lang = 'pt-BR';
-          window.speechSynthesis.speak(u);
-          state.ttsReady = true;
-        } catch (_) { this.enabled=false; }
+        if (!('speechSynthesis' in window)) { this.enabled=false; this.readyPromise = Promise.resolve(); return; }
+        if (this.readyPromise) { return; }
+
+        const finalizeSelection = () => {
+          const voice = this.pickVoice();
+          if (voice) {
+            this.selectedVoice = voice;
+            state.ttsReady = true;
+            this.enabled = true;
+          } else {
+            this.enabled = false;
+          }
+        };
+
+        this.readyPromise = new Promise(resolve => {
+          const trySelect = () => {
+            finalizeSelection();
+            resolve();
+          };
+
+          try {
+            window.speechSynthesis.cancel();
+            const unlock = new SpeechSynthesisUtterance('');
+            unlock.lang = 'pt-BR';
+            window.speechSynthesis.speak(unlock);
+          } catch (_) {
+            this.enabled = false;
+            resolve();
+            return;
+          }
+
+          const immediate = window.speechSynthesis.getVoices();
+          if (immediate && immediate.length) {
+            trySelect();
+            return;
+          }
+
+          const onVoicesChanged = () => {
+            window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+            trySelect();
+          };
+
+          window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+          setTimeout(trySelect, 1500); // fallback caso o evento não dispare
+        });
       },
       pickVoice(){
         const voices = window.speechSynthesis?.getVoices?.() || [];
-        const pt = voices.filter(v=>/pt-BR/i.test(v.lang));
-        // Preferências comuns: Luciana, Felipe (macOS/iOS), Google pt-BR (Chrome)
-        return pt.find(v=>/Luciana|Felipe|Google/.test(v.name)) || pt.find(v=>v.default) || pt[0] || null;
+        const ptVoices = voices.filter(v=>/pt-?BR/i.test(v.lang));
+        if (!ptVoices.length) { return null; }
+        for (const pattern of this.preferredVoicePatterns){
+          const match = ptVoices.find(v=>pattern.test(v.name));
+          if (match) { return match; }
+        }
+        const def = ptVoices.find(v=>v.default);
+        return def || ptVoices[0];
       },
       say(text, {rate=1.05, onend}={}){
         const badge = $('#badge-audio');
         if (badge) badge.style.display='inline-flex';
-        if (!this.enabled || !state.ttsReady) { if (badge) badge.style.display='none'; if (onend) onend(); return; }
-        this.speakQueue = this.speakQueue.then(()=> new Promise(res=>{
-          window.speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(text);
-          u.lang='pt-BR'; u.rate=rate; u.voice=this.pickVoice();
-          u.onend=()=>{ if (badge) badge.style.display='none'; if (onend) onend(); res(); };
-          u.onerror=()=>{ if (badge) badge.style.display='none'; if (onend) onend(); res(); }; // Garante continuação em erro
-          window.speechSynthesis.speak(u);
-        }));
+
+        if (!this.readyPromise) { this.ensureReady(); }
+
+        this.speakQueue = this.speakQueue
+          .then(() => this.readyPromise || Promise.resolve())
+          .then(() => new Promise(res => {
+            if (!this.enabled || !state.ttsReady) {
+              if (badge) badge.style.display='none';
+              if (onend) onend();
+              res();
+              return;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'pt-BR';
+            utterance.rate = rate;
+            utterance.voice = this.selectedVoice || this.pickVoice();
+            if (!utterance.voice) {
+              this.enabled = false;
+              if (badge) badge.style.display='none';
+              if (onend) onend();
+              res();
+              return;
+            }
+
+            utterance.onend = () => {
+              if (badge) badge.style.display='none';
+              if (onend) onend();
+              res();
+            };
+            utterance.onerror = () => {
+              if (badge) badge.style.display='none';
+              if (onend) onend();
+              res();
+            };
+
+            window.speechSynthesis.speak(utterance);
+          }));
       }
     };
 
@@ -206,6 +491,7 @@
             <p class="text-xs text-gray-500">${TEST_VERSION}</p>
           </div>
           <div id="badge-audio" class="badge-audio pulse"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Reproduzindo</div>
+          <div id="badge-mic" class="badge-mic"><span class="record-dot"></span> Ouvindo</div>
         </div>
         ${showProgress?`<div class="mt-4 progress"><div style="width:${pct}%"></div></div>`:'<div class="mt-6"></div>'}
       `;
@@ -294,6 +580,9 @@
     }
 
     function renderQuestionBlock(blockName){
+      if (blockName === 'orientacao' && !state.orientationReference){
+        state.orientationReference = new Date();
+      }
       const arr = blocks[blockName];
       const item = arr[state.itemIndex];
       if (!item) { return goNext(); }
@@ -331,6 +620,7 @@
       }
 
       app.innerHTML = inner;
+      refreshVoiceUI();
     }
 
     function questionUI(blockName, item){
@@ -350,16 +640,23 @@
       return `
         ${header({codificacao:'Memorização', orientacao:'Orientação no Tempo', semantica:'Conhecimentos Gerais'}[blockName])}
         <p class="text-xl text-gray-700 mb-6 min-h-[60px]">${prompt}</p>
-        ${kind==='mc' ? `
-          <div class="option-grid">
-            ${opts.map(o=>`<button class="option-btn" data-action="choose" data-value="${encodeURIComponent(o)}">${o}</button>`).join('')}
-          </div>
-        `: `
-          <div><input id="free-input" class="input" type="${inputType}" placeholder="Digite sua resposta" autocomplete="off" /></div>
-        `}
-        <div class="mt-8 text-right">
-          <button class="btn" data-action="submit" ${kind==='mc'?'disabled':''}>Confirmar</button>
+      ${kind==='mc' ? `
+        <div class="option-grid">
+          ${opts.map(o=>`<button class="option-btn" data-action="choose" data-value="${encodeURIComponent(o)}">${o}</button>`).join('')}
         </div>
+      `: `
+        <div><input id="free-input" class="input" type="${inputType}" placeholder="Digite sua resposta" autocomplete="off" /></div>
+      `}
+      <div class="flex items-center justify-between mt-4">
+        <div class="text-sm text-gray-500 truncate"><span id="voice-transcript"></span></div>
+        <div class="flex gap-2">
+          <button class="btn-secondary btn" data-action="voice-start" data-mode="${kind==='mc'?'mc':'input'}">🎙️ Responder por voz</button>
+          <button class="btn-secondary btn" data-action="voice-stop">Parar</button>
+        </div>
+      </div>
+      <div class="mt-8 text-right">
+        <button class="btn" data-action="submit" ${kind==='mc'?'disabled':''}>Confirmar</button>
+      </div>
         ${dynAns!==null?`<span class="hidden" id="dyn-answer" data-ans="${encodeURIComponent(dynAns)}"></span>`:''}
       `;
     }
@@ -368,9 +665,22 @@
     // EVOCAÇÃO LIVRE
     // ==============================
     function buildRecallPool(){
-      const words = blocks.codificacao.filter(i=>i.type==='mc').map(i=>({cue:i.cue, answer:i.answer, source:'word', recalled:null}));
+      let recallId = 0;
+      const nextId = ()=>`recall-${recallId++}`;
+      const words = blocks.codificacao
+        .filter(i=>i.type==='mc')
+        .map(i=>({id:nextId(), cue:i.cue, answer:i.answer, source:'word', recalled:null, response:null}));
       const sentSets = blocks.codificacao.filter(i=>i.type==='mc-sent');
-      const sentItems = sentSets.flatMap((s,idx)=> s.recall_items.map(x=>({cue:`Da frase sobre ${idx===0?'os gatos':'o garoto'}`, answer:x, source:`sentence_${idx+1}`, recalled:null})));
+      const sentItems = sentSets.flatMap((s,idx)=>
+        s.recall_items.map(x=>({
+          id:nextId(),
+          cue:`Da frase sobre ${idx===0?'os gatos':'o garoto'}`,
+          answer:x,
+          source:`sentence_${idx+1}`,
+          recalled:null,
+          response:null
+        }))
+      );
       state.itemsToRecall = [...words, ...sentItems];
     }
 
@@ -392,9 +702,17 @@
         <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           ${pool.map(o=>`<button class="option-btn text-center" data-action="toggle-recall" data-kind="word">${o}</button>`).join('')}
         </div>
+        <div class="flex items-center justify-between mt-3">
+          <div class="text-sm text-gray-500 truncate"><span id="voice-transcript"></span></div>
+          <div class="flex gap-2">
+            <button class="btn-secondary btn" data-action="voice-start" data-mode="recall-words">🎙️ Falar palavras</button>
+            <button class="btn-secondary btn" data-action="voice-stop">Parar</button>
+          </div>
+        </div>
         <div class="mt-3 text-right text-sm">Selecionadas: <span id="sel-count" class="font-semibold">0</span> / ${MAX_FREE_RECALL_WORDS}</div>
         <div class="mt-6 text-right"><button class="btn" data-action="commit-recall-words">Confirmar seleção</button></div>
       `;
+      refreshVoiceUI();
     }
 
     function renderFreeRecallSentences(){
@@ -410,16 +728,26 @@
         <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
           ${pool.map(o=>`<button class="option-btn text-center" data-action="toggle-recall" data-kind="sent">${o}</button>`).join('')}
         </div>
+        <div class="flex items-center justify-between mt-3">
+          <div class="text-sm text-gray-500 truncate"><span id="voice-transcript"></span></div>
+          <div class="flex gap-2">
+            <button class="btn-secondary btn" data-action="voice-start" data-mode="recall-sent">🎙️ Falar itens</button>
+            <button class="btn-secondary btn" data-action="voice-stop">Parar</button>
+          </div>
+        </div>
         <div class="mt-6 text-right"><button class="btn" data-action="commit-recall-sent">Confirmar e continuar</button></div>
       `;
+      refreshVoiceUI();
     }
 
     // ==============================
     // EVOCAÇÃO COM PISTAS
     // ==============================
     function renderCuedRecall(){
-      const pending = state.itemsToRecall.find(i=>!i.recalled);
+      const remainingItems = state.itemsToRecall.filter(i=>!i.recalled);
+      const pending = remainingItems[0];
       if (!pending){
+        state.scores.recuperacao_pistas = state.itemsToRecall.filter(i=>i.recalled === 'cued').length;
         return goNext();
       }
       const distractorMap = {
@@ -431,15 +759,26 @@
       const distract = (key? distractorMap[key]: ['Opção A','Opção B']).filter(d=>d!==pending.answer);
       const opts = shuffle([pending.answer, ...shuffle(distract).slice(0,3), 'Não me recordo']);
 
-      tts.say(pending.cue);
+      state.selection = null;
       app.innerHTML = `
         ${header('Evocação com Pistas')}
+        <p class="text-sm text-gray-500 mb-2">Itens restantes: ${remainingItems.length}</p>
         <p class="text-xl text-gray-700 mb-6">${pending.cue}</p>
         <div class="option-grid">
           ${opts.map(o=>`<button class="option-btn" data-action="choose" data-value="${encodeURIComponent(o)}">${o}</button>`).join('')}
         </div>
+        <div class="flex items-center justify-between mt-4">
+          <div class="text-sm text-gray-500 truncate"><span id="voice-transcript"></span></div>
+          <div class="flex gap-2">
+            <button class="btn-secondary btn" data-action="voice-start" data-mode="cued">🎙️ Responder por voz</button>
+            <button class="btn-secondary btn" data-action="voice-stop">Parar</button>
+          </div>
+        </div>
         <div class="mt-8 text-right"><button class="btn" data-action="submit-cued" data-item="${encodeURIComponent(JSON.stringify(pending))}" disabled>Confirmar</button></div>
       `;
+      state.lastShownAt = performance.now();
+      tts.say(pending.cue);
+      refreshVoiceUI();
     }
 
     // ==============================
@@ -447,6 +786,8 @@
     // ==============================
     function startTest(){
       state.startTime = new Date();
+      state.orientationReference = null;
+      state.speech = { supported:state.speech.supported, listening:false, utterances:0, log:[] };
       state.screen = 'test';
       state.block = FLOW[0];
       state.itemIndex = 0; state.subIndex = 0;
@@ -455,6 +796,7 @@
     }
 
     function goNext(){
+      asr.stop();
       // avança dentro do bloco atual
       if (blocks[state.block]){
         const arr = blocks[state.block];
@@ -470,6 +812,9 @@
       const i = FLOW.indexOf(state.block);
       if (i < FLOW.length-1){
         state.block = FLOW[i+1];
+        if (state.block === 'orientacao' && !state.orientationReference){
+          state.orientationReference = new Date();
+        }
         state.itemIndex = 0; state.subIndex = 0;
         render(); return;
       }
@@ -483,22 +828,53 @@
       const now = performance.now();
       const rt = Math.max(0, now - (state.lastShownAt||now));
       state.rtLog.push({block:domain, item:state.itemIndex, sub:state.subIndex, answer, correct, rt});
-      if (rt < 300) state.qc.push(`Resposta muito rápida (${Math.round(rt)}ms) em ${domain}-${state.itemIndex}`);
-      const ok = String(answer).trim().toLowerCase() === String(correct).trim().toLowerCase();
+      if (rt < 200) state.qc.push(`Resposta muito rápida (${Math.round(rt)}ms) em ${domain}-${state.itemIndex}`);
+      const ok = answersMatch(answer, correct);
       if (ok) state.scores[domain]++;
       const key = `${domain}-${state.itemIndex}-${state.subIndex}`;
       state.answers[key] = {given:answer, correct, isCorrect:ok, rt};
+    }
+
+    function registerCuedRecallAnswer(item, answer){
+      const given = String(answer ?? '');
+      const correct = String(item?.answer ?? '');
+      if (!given){ return; }
+
+      const rt = Math.max(0, performance.now() - (state.lastShownAt || performance.now()));
+      const ok = answersMatch(given, correct);
+      let ref = state.itemsToRecall.find(i=>i.id && item?.id && i.id === item.id);
+      if (!ref){
+        ref = state.itemsToRecall.find(i=>i.cue===item.cue && answersMatch(i.answer, correct));
+      }
+
+      if (ref && ref.recalled === 'free'){ return; }
+
+      if (ref){
+        ref.recalled = ok ? 'cued' : 'missed';
+        ref.response = given;
+      }
+
+      const key = `recuperacao_pistas-${item.cue}-${correct}`;
+      state.answers[key] = { given, correct, cue:item.cue, isCorrect:ok, rt };
+      state.rtLog.push({ block:'recuperacao_pistas', item:item.cue, answer:given, correct, rt, isCorrect:ok });
+      if (rt < 200) state.qc.push(`Resposta muito rápida (${Math.round(rt)}ms) na evocação com pistas (${item.cue})`);
+
+      state.scores.recuperacao_pistas = state.itemsToRecall.filter(i=>i.recalled === 'cued').length;
     }
 
     // ==============================
     // EXPORTAÇÃO
     // ==============================
     function exportData(){
-      const total = Object.values(state.scores).reduce((a,b)=>a+b,0);
+      if (!state.recallStats) summarizeRecall();
+      const stats = state.recallStats || computeRecallStats();
+      const totalScore = state.scores.codificacao + state.scores.orientacao + state.scores.semantica + state.scores.recuperacao_livre + state.scores.recuperacao_pistas;
+      const totalMax = 10 + 5 + 15 + 10 + 10;
       return {
         version: TEST_VERSION,
         testDate: state.startTime?.toISOString?.()||'',
         durationSec: state.endTime? Math.round((state.endTime - state.startTime)/1000):0,
+        orientationReference: state.orientationReference? new Date(state.orientationReference).toISOString():null,
         profile: state.profile,
         scores: {
           codificacao: {score:state.scores.codificacao, max:10},
@@ -506,12 +882,20 @@
           semantica: {score:state.scores.semantica, max:15},
           recuperacao_livre: {score:state.scores.recuperacao_livre, max:10},
           recuperacao_pistas: {score:state.scores.recuperacao_pistas, max:10},
-          total: {score:total, max:50}
+          total: {score:totalScore, max:totalMax}
+        },
+        derived: {
+          cuedEligible: stats.eligible,
+          cuedRecovered: stats.cueHits,
+          cuedAutoCredit: stats.autoAwarded ? stats.totalTargets : 0,
+          recuperacao_total: stats.totalTargets - stats.missed,
+          voice: { supported: state.speech.supported, used: state.speech.utterances>0, utterances: state.speech.utterances }
         },
         qc: state.qc,
         answers: state.answers,
         recall: state.itemsToRecall,
-        rt: state.rtLog
+        rt: state.rtLog,
+        speechLog: state.speech.log
       };
     }
 
@@ -540,16 +924,18 @@
       const mm = Math.floor(duration/60);
       const ss = duration % 60;
       doc.text(`Duração: ${mm}m ${ss}s`, 20, 53);
+      const voiceInfo = data.derived?.voice || {used:false,utterances:0};
+      doc.text(`Respostas por voz: ${voiceInfo.used ? 'Sim' : 'Não'} (enunciados: ${voiceInfo.utterances || 0})`, 20, 61);
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text("Perfil do Participante", 20, 68);
+      doc.text("Perfil do Participante", 20, 76);
       doc.setFontSize(11);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Idade: ${data.profile.age} anos`, 20, 76);
-      doc.text(`Escolaridade: ${data.profile.education} anos`, 20, 84);
+      doc.text(`Idade: ${data.profile.age} anos`, 20, 84);
+      doc.text(`Escolaridade: ${data.profile.education} anos`, 20, 92);
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text("Pontuação por Domínio", 20, 100);
+      doc.text("Pontuação por Domínio", 20, 108);
 
       const betterLabels = {
         codificacao: 'Memorização (Codificação)',
@@ -564,7 +950,7 @@
       });
 
       doc.autoTable({
-        startY: 105,
+        startY: 113,
         head: [['Domínio', 'Pontuação', 'Máximo']],
         body: tableData,
         theme: 'grid',
@@ -575,8 +961,13 @@
           }
         }
       });
+      let y = doc.autoTable.previous.finalY + 10;
+      const eligibleCued = (data.recall || []).filter(i=>i.recalled && i.recalled !== 'free').length;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Itens elegíveis por pistas: ${eligibleCued}`, 20, y);
+      y += 8;
       if (data.qc.length > 0) {
-        let y = doc.autoTable.previous.finalY + 15;
         doc.setFontSize(12);
         doc.setFont('helvetica', 'bold');
         doc.text("Observações de Qualidade:", 20, y);
@@ -601,9 +992,16 @@
     // RESULTADOS
     // ==============================
     function renderResults(){
+      asr.stop();
+      const stats = summarizeRecall();
       const data = exportData();
       const total = data.scores.total.score;
       const duration = data.durationSec; const mm = Math.floor(duration/60); const ss = duration%60;
+      const eligibleCued = stats.eligible;
+      const cuesRecovered = stats.cueHits;
+      const eligibleNote = eligibleCued === 0
+        ? 'Nenhum item precisou de pista (pontuação máxima atribuída).'
+        : `Itens elegíveis por pistas: ${eligibleCued} - Recuperadas com pistas: ${cuesRecovered}`;
       const row = (label, sc, max, strong=false)=>`
         <div class="flex justify-between items-center ${strong?'bg-blue-100 border-2 border-blue-300':'bg-gray-50'} p-3 rounded-lg">
           <span class="${strong?'font-bold text-blue-800':'font-semibold text-gray-700'}">${label}</span>
@@ -620,6 +1018,7 @@
           ${row('Conhecimentos Gerais', data.scores.semantica.score, data.scores.semantica.max)}
           ${row('Evocação Livre', data.scores.recuperacao_livre.score, data.scores.recuperacao_livre.max)}
           ${row('Evocação com Pistas', data.scores.recuperacao_pistas.score, data.scores.recuperacao_pistas.max)}
+          <div class="text-xs text-gray-500 text-right">${eligibleNote}</div>
           ${row('PONTUAÇÃO TOTAL', total, data.scores.total.max, true)}
         </div>
         ${state.qc.length?`
@@ -641,6 +1040,7 @@
           <p>Este é um teste de rastreio cognitivo. A interpretação dos resultados deve ser realizada por profissional habilitado.</p>
         </div>
       `;
+      refreshVoiceUI();
     }
 
     // ==============================
@@ -674,6 +1074,7 @@
         if (submit){ submit.disabled=false; }
       }
       else if (act==='submit'){
+        asr.stop();
         const arr = blocks[state.block]; const item = arr[state.itemIndex];
         let given = state.selection;
         if (item.type==='input-dyn'){
@@ -711,39 +1112,39 @@
         }
       }
       else if (act==='commit-recall-words'){
+        asr.stop();
         const chosen = $$('#recall-grid .option-btn.selected').map(b=>b.textContent.trim());
         chosen.forEach(w=>{
-          const it = state.itemsToRecall.find(i=>i.source==='word' && !i.recalled && i.answer.toLowerCase()===w.toLowerCase());
-          if (it){ it.recalled='free'; state.scores.recuperacao_livre++; }
-        });
-        state.recallPhase='sent'; render();
-      }
+        const it = state.itemsToRecall.find(i=>i.source==='word' && !i.recalled && answersMatch(i.answer, w));
+        if (it){ it.recalled='free'; it.response = w; state.scores.recuperacao_livre++; }
+      });
+      state.recallPhase='sent'; render();
+    }
       else if (act==='commit-recall-sent'){
+        asr.stop();
         const chosen = $$('#recall-grid .option-btn.selected').map(b=>b.textContent.trim());
         chosen.forEach(w=>{
-          const it = state.itemsToRecall.find(i=>/sentence_/.test(i.source) && !i.recalled && i.answer.toLowerCase()===w.toLowerCase());
-          if (it){ it.recalled='free'; state.scores.recuperacao_livre++; }
-        });
-        goNext();
-      }
+        const it = state.itemsToRecall.find(i=>/sentence_/.test(i.source) && !i.recalled && answersMatch(i.answer, w));
+        if (it){ it.recalled='free'; it.response = w; state.scores.recuperacao_livre++; }
+      });
+      goNext();
+    }
       else if (act==='submit-cued'){
+        asr.stop();
         const raw = btn.getAttribute('data-item');
         const item = JSON.parse(decodeURIComponent(raw));
         const ans = state.selection || '';
-        const ok = ans.toLowerCase() === item.answer.toLowerCase();
-        if (!state.itemsToRecall.find(i=>i.cue===item.cue && i.answer===item.answer)?.recalled){
-          if (ok) state.scores.recuperacao_pistas++;
-          const ref = state.itemsToRecall.find(i=>i.cue===item.cue && i.answer===item.answer);
-          if (ref) ref.recalled = 'cued';
-        }
+        registerCuedRecallAnswer(item, ans);
         state.selection = null;
         renderCuedRecall();
       }
       else if (act==='restart'){
-        if (confirm('Reiniciar o teste? O progresso atual será perdido.')){ Object.assign(state, {
+        if (confirm('Reiniciar o teste? O progresso atual será perdido.')){ asr.stop(); Object.assign(state, {
           screen:'welcome', profile:{age:'',education:''}, block:null, itemIndex:0, subIndex:0, startTime:null, endTime:null,
           answers:{}, scores:{codificacao:0, orientacao:0, semantica:0, recuperacao_livre:0, recuperacao_pistas:0},
-          itemsToRecall:[], recallPhase:'words', selection:null, lastShownAt:null, rtLog:[], qc:[], ttsReady:state.ttsReady
+          itemsToRecall:[], recallPhase:'words', selection:null, lastShownAt:null, rtLog:[], qc:[], ttsReady:state.ttsReady,
+          orientationReference:null, recallStats:null,
+          speech:{ supported:state.speech.supported, listening:false, utterances:0, log:[] }
         }); render(); }
       }
       else if (act==='export-json'){
@@ -769,6 +1170,13 @@
       else if (act==='export-pdf'){
         exportPDF();
       }
+      else if (act==='voice-start'){
+        const mode = btn.getAttribute('data-mode') || 'mc';
+        asr.start({mode});
+      }
+      else if (act==='voice-stop'){
+        asr.stop();
+      }
     });
 
     app.addEventListener('keypress', (e)=>{
@@ -788,6 +1196,7 @@
     });
 
     // BOOT
+    asr.init();
     render();
   </script>
 </body>
