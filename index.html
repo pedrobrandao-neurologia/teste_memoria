@@ -1,0 +1,993 @@
+
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M@T Digital (Teste de Alteração da Memória)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bibliotecas para gerar PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .card {
+            background-color: white;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 600px;
+        }
+        @media (min-width: 640px) {
+            .card {
+                padding: 2.5rem;
+            }
+        }
+        .btn {
+            display: inline-block;
+            padding: 0.875rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            text-align: center;
+            color: white;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            border: none;
+            user-select: none;
+        }
+        .btn-primary {
+            background-color: var(--primary-color);
+        }
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+        }
+        .btn-secondary {
+            background-color: #6b7280;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563;
+        }
+        .btn-disabled {
+            background-color: #d1d5db;
+            cursor: not-allowed;
+        }
+        .option-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.75rem;
+        }
+         @media (min-width: 640px) {
+            .option-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        .option-btn {
+            width: 100%;
+            padding: 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            text-align: left;
+            background-color: #f9fafb;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .option-btn:hover:not(:disabled) {
+            background-color: #f3f4f6;
+            border-color: var(--primary-color);
+        }
+        .option-btn.selected {
+            background-color: #bfdbfe;
+            border-color: var(--primary-color);
+            font-weight: 600;
+        }
+         .option-btn:disabled {
+            background-color: #e5e7eb;
+            cursor: not-allowed;
+            color: #9ca3af;
+        }
+        .option-btn.correct {
+            background-color: #dcfce7; /* green-100 */
+            border-color: #22c55e; /* green-500 */
+            color: #166534; /* green-800 */
+            font-weight: 600;
+        }
+        .option-btn.incorrect {
+            background-color: #fee2e2; /* red-100 */
+            border-color: #ef4444; /* red-500 */
+            color: #991b1b; /* red-800 */
+        }
+        .input-field {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+        }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #e5e7eb;
+            border-radius: 9999px;
+            height: 0.5rem;
+            margin: 1.5rem 0;
+        }
+        .progress-bar {
+            background-color: var(--primary-color);
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div id="app" class="card">
+        <!-- Conteúdo dinâmico da aplicação -->
+    </div>
+
+    <script>
+    // --- INÍCIO DO MÓDULO DE DADOS DO TESTE (JSON) ---
+    const testData = {
+        version: "MAT-Digital 1.0.4",
+        config: {
+            word_presentation_ms: 1500,
+            isi_ms: 500,
+            free_recall_window_s: 20,
+        },
+        blocks: {
+            codificacao: [
+                { type: 'instruction', text: 'Agora, vou dizer 5 palavras. Ouça com atenção e tente memorizá-las.' },
+                { type: 'word_presentation', item: 'Cereja' },
+                { type: 'word_presentation', item: 'Machado' },
+                { type: 'word_presentation', item: 'Elefante' },
+                { type: 'word_presentation', item: 'Piano' },
+                { type: 'word_presentation', item: 'Verde' },
+                { type: 'instruction', text: 'Agora, por favor, me diga as palavras que você se lembra.' },
+                { 
+                    type: 'question_mc', 
+                    prompt: 'Eu lhe disse o nome de uma fruta, qual era?', 
+                    options: ['Maçã', 'Cereja', 'Banana', 'Uva'],
+                    answer: 'Cereja',
+                    cue: 'Qual era a fruta?'
+                },
+                { 
+                    type: 'question_mc', 
+                    prompt: 'Eu lhe disse o nome de uma ferramenta, qual era?', 
+                    options: ['Serrote', 'Alicate', 'Machado', 'Martelo'],
+                    answer: 'Machado',
+                    cue: 'Qual era a ferramenta?'
+                },
+                { 
+                    type: 'question_mc', 
+                    prompt: 'Eu lhe disse o nome de um animal, qual era?', 
+                    options: ['Cachorro', 'Gato', 'Leão', 'Elefante'],
+                    answer: 'Elefante',
+                    cue: 'Qual era o animal?'
+                },
+                { 
+                    type: 'question_mc', 
+                    prompt: 'Eu lhe disse o nome de um instrumento musical, qual era?', 
+                    options: ['Violino', 'Piano', 'Flauta', 'Bateria'],
+                    answer: 'Piano',
+                    cue: 'Qual era o instrumento musical?'
+                },
+                { 
+                    type: 'question_mc', 
+                    prompt: 'Eu lhe disse o nome de uma cor, qual era?', 
+                    options: ['Azul', 'Vermelho', 'Verde', 'Amarelo'],
+                    answer: 'Verde',
+                    cue: 'Qual era a cor?'
+                },
+                { type: 'instruction', text: 'Muito bem. Agora ouça com atenção a primeira frase.' },
+                { type: 'sentence_presentation', sentence: 'Trinta gatos cinzas comeram todo o queijo.' },
+                { 
+                    type: 'sentence_questions',
+                    sentence_ref: 'Trinta gatos cinzas comeram todo o queijo.',
+                    questions: [
+                        { prompt: 'Da frase sobre os gatos, quantos gatos eram?', options: ['Vinte', 'Trinta', 'Quarenta'], answer: 'Trinta' },
+                        { prompt: 'Qual era a cor dos gatos?', options: ['Pretos', 'Brancos', 'Cinzas'], answer: 'Cinzas' },
+                        { prompt: 'O que eles comeram?', options: ['Ração', 'Peixe', 'Queijo'], answer: 'Queijo' },
+                    ],
+                    recall_items: ['Trinta', 'Cinzas', 'Queijo']
+                },
+                { type: 'instruction', text: 'Ótimo. Agora ouça a segunda frase.' },
+                { type: 'sentence_presentation', sentence: 'Um garoto chamado Luís estava brincando com sua bicicleta.' },
+                { 
+                    type: 'sentence_questions',
+                    sentence_ref: 'Um garoto chamado Luís estava brincando com sua bicicleta.',
+                    questions: [
+                        { prompt: 'Da frase sobre o garoto, qual era o nome dele?', options: ['Pedro', 'Luís', 'João'], answer: 'Luís' },
+                        { prompt: 'Com o que ele estava brincando?', options: ['Bola', 'Carrinho', 'Bicicleta'], answer: 'Bicicleta' },
+                    ],
+                    recall_items: ['Luís', 'Bicicleta']
+                },
+            ],
+            orientacao: [
+                { type: 'question_mc', prompt: 'Que dia da semana é hoje?', get_options: 'dayOfWeek', get_answer: 'dayOfWeek' },
+                { type: 'question_mc', prompt: 'Em que mês estamos?', get_options: 'month', get_answer: 'month' },
+                { type: 'question_input', prompt: 'Qual é o dia do mês?', input_type: 'number', get_answer: 'dayOfMonth' },
+                { type: 'question_input', prompt: 'Em que ano estamos?', input_type: 'number', get_answer: 'year' },
+                { type: 'question_mc', prompt: 'Qual é a estação do ano?', get_options: 'season', get_answer: 'season' },
+            ],
+            semantica: [
+                { type: 'question_mc', prompt: 'Qual profissional conserta carros?', options: ['Mecânico', 'Eletricista', 'Encanador', 'Padeiro', 'Jardineiro'], answer: 'Mecânico' },
+                { type: 'question_mc', prompt: 'Qual é o último dia do ano?', options: ['31 de Dezembro', '30 de Dezembro', '1 de Janeiro', '25 de Dezembro', '31 de Janeiro'], answer: '31 de Dezembro' },
+                { type: 'question_mc', prompt: 'Quantas gramas há em um quarto de quilo?', options: ['250g', '500g', '100g', '750g', '1000g'], answer: '250g' },
+                { type: 'question_mc', prompt: 'Qual é o oitavo mês do ano?', options: ['Agosto', 'Setembro', 'Julho', 'Outubro', 'Junho'], answer: 'Agosto' },
+                { type: 'question_mc', prompt: 'Em que mês comemoramos o Natal?', options: ['Novembro', 'Janeiro', 'Dezembro', 'Fevereiro', 'Março'], answer: 'Dezembro' },
+                { type: 'question_mc', prompt: 'Se o ponteiro grande de um relógio está no 11, quantos minutos ele marca?', options: ['55 minutos', '11 minutos', '50 minutos', '5 minutos', '60 minutos'], answer: '55 minutos' },
+                { type: 'question_mc', prompt: 'Qual estação do ano vem depois do verão?', options: ['Outono', 'Inverno', 'Primavera'], answer: 'Outono' },
+                { type: 'question_mc', prompt: 'Que animal rasteja e não tem patas?', options: ['Cachorro', 'Pássaro', 'Serpente', 'Peixe', 'Minhoca'], answer: 'Serpente' },
+                { type: 'question_mc', prompt: 'Azeitona vem de qual árvore?', options: ['Videira', 'Oliveira', 'Macieira', 'Cerejeira', 'Laranjeira'], answer: 'Oliveira' },
+                { type: 'question_mc', prompt: 'De qual fruto se faz o chocolate?', options: ['Café', 'Cacau', 'Morango', 'Cana-de-açúcar', 'Soja'], answer: 'Cacau' },
+                { type: 'question_mc', prompt: 'Qual o triplo de doze?', options: ['24', '36', '48', '30', '15'], answer: '36' },
+                { type: 'question_mc', prompt: 'Quantas horas há em dois dias?', options: ['24 horas', '36 horas', '48 horas', '72 horas', '60 horas'], answer: '48 horas' },
+                { type: 'question_mc', prompt: 'O que usamos para escrever em um quadro negro?', options: ['Caneta', 'Giz', 'Lápis', 'Pincel', 'Tinta'], answer: 'Giz' },
+                { type: 'question_mc', prompt: 'Qual é a capital do Brasil?', options: ['Rio de Janeiro', 'São Paulo', 'Brasília', 'Salvador', 'Belo Horizonte'], answer: 'Brasília' },
+                { type: 'question_mc', prompt: 'Quantos lados tem um triângulo?', options: ['Três', 'Quatro', 'Cinco'], answer: 'Três' },
+            ],
+        }
+    };
+    // --- FIM DO MÓDULO DE DADOS DO TESTE ---
+
+    const app = document.getElementById('app');
+    const { jsPDF } = window.jspdf;
+
+    let state = {};
+    let tts = window.speechSynthesis;
+    let voices = [];
+
+    // --- FUNÇÕES AUXILIARES ---
+    const speak = (text, onEndCallback = null) => {
+        if (tts.speaking) {
+            tts.cancel();
+        }
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        const ptVoices = voices.filter(voice => voice.lang === 'pt-BR');
+        if (ptVoices.length > 0) {
+            utterance.voice = ptVoices[0];
+        }
+        
+        utterance.lang = 'pt-BR';
+        utterance.volume = 1;
+        utterance.pitch = 1;
+        utterance.rate = 1.25;
+
+        if (onEndCallback) {
+            utterance.onend = onEndCallback;
+        }
+
+        tts.speak(utterance);
+    };
+    
+    const shuffleArray = (array) => {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    const getDynamicAnswers = (type) => {
+        const now = new Date();
+        const weekDays = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        const seasons = ['Verão', 'Outono', 'Inverno', 'Primavera'];
+        
+        const month = now.getMonth();
+        let season;
+        // Aproximação para Hemisfério Sul
+        if (month <= 2 || month == 11) season = 'Verão';
+        else if (month >= 3 && month <= 5) season = 'Outono';
+        else if (month >= 6 && month <= 8) season = 'Inverno';
+        else season = 'Primavera';
+
+        switch(type) {
+            case 'dayOfWeek': return { options: weekDays, answer: weekDays[now.getDay()] };
+            case 'month': return { options: months, answer: months[now.getMonth()] };
+            case 'season': return { options: seasons, answer: season };
+            case 'dayOfMonth': return { answer: now.getDate().toString() };
+            case 'year': return { answer: now.getFullYear().toString() };
+            default: return {};
+        }
+    };
+    
+    // --- INICIALIZAÇÃO ---
+    const init = () => {
+        const loadVoices = () => {
+            voices = tts.getVoices();
+            if (voices.length === 0) {
+                tts.onvoiceschanged = loadVoices;
+            }
+        };
+        loadVoices();
+        
+        resetState();
+        render();
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && state.screen !== 'welcome' && state.screen !== 'results') {
+                state.qcFlags.push('O usuário trocou de aba durante o teste.');
+            }
+        });
+    };
+
+    const resetState = () => {
+        state = {
+            screen: 'welcome',
+            profile: { age: '', education: '' },
+            block: null,
+            itemIndex: 0,
+            subItemIndex: 0,
+            answers: {},
+            scores: { codificacao: 0, orientacao: 0, semantica: 0, recuperacao_livre: 0, recuperacao_pistas: 0, recuperacao_total: 0 },
+            startTime: null,
+            endTime: null,
+            qcFlags: [],
+            recallStep: 'words',
+            itemsToRecall: [],
+            selectedAnswer: null,
+            lastActionTime: null,
+            isFeedbackActive: false,
+            testFlow: ['codificacao', 'orientacao', 'semantica', 'free_recall', 'cued_recall']
+        };
+    };
+
+    // --- LÓGICA DE NAVEGAÇÃO E PROCESSAMENTO ---
+    const startTest = () => {
+        state.startTime = new Date();
+        state.screen = 'test';
+        state.block = state.testFlow[0];
+        state.itemIndex = 0;
+        state.subItemIndex = 0;
+        
+        const recallWords = testData.blocks.codificacao.filter(i => i.type === 'question_mc').map(i => ({ cue: i.cue, answer: i.answer, recalled: false, source: 'word' }));
+        const recallSentences = testData.blocks.codificacao.filter(i => i.type === 'sentence_questions').flatMap((s, idx) => s.recall_items.map(ri => ({ cue: `Da frase sobre "${idx === 0 ? 'gatos' : 'o garoto'}"`, answer: ri, recalled: false, source: `sentence_${idx+1}` })));
+        state.itemsToRecall = [...recallWords, ...recallSentences];
+        
+        render();
+    };
+
+    const nextItem = () => {
+        state.selectedAnswer = null;
+        state.lastActionTime = new Date();
+        const currentBlockData = testData.blocks[state.block];
+
+        if (state.block === 'codificacao') {
+            const currentItem = currentBlockData[state.itemIndex];
+            if (currentItem.type === 'sentence_questions' && state.subItemIndex < currentItem.questions.length - 1) {
+                state.subItemIndex++;
+            } else {
+                state.itemIndex++;
+                state.subItemIndex = 0;
+            }
+        } else {
+            state.itemIndex++;
+        }
+
+        if (!currentBlockData || state.itemIndex >= currentBlockData.length) {
+            const currentBlockIndex = state.testFlow.indexOf(state.block);
+            if (currentBlockIndex < state.testFlow.length - 1) {
+                state.block = state.testFlow[currentBlockIndex + 1];
+                state.itemIndex = 0;
+            } else {
+                state.endTime = new Date();
+                state.screen = 'results';
+            }
+        }
+        render();
+    };
+    
+    const processAnswer = (answer, advance = true) => {
+        const rt = new Date() - state.lastActionTime;
+        if (rt < 200) {
+            state.qcFlags.push(`Resposta rápida incomum (${rt}ms) no item ${state.block}-${state.itemIndex}`);
+        }
+        
+        const currentBlockName = state.block;
+        if (!testData.blocks[currentBlockName] || !testData.blocks[currentBlockName][state.itemIndex]) return;
+
+        const currentItem = testData.blocks[currentBlockName][state.itemIndex];
+        let correctAnswer;
+
+        if (currentItem.get_answer) {
+             correctAnswer = getDynamicAnswers(currentItem.get_answer).answer;
+        } else if (currentItem.type === 'sentence_questions') {
+            correctAnswer = currentItem.questions[state.subItemIndex].answer;
+        } else {
+            correctAnswer = currentItem.answer;
+        }
+        
+        if (String(answer).toLowerCase() === String(correctAnswer).toLowerCase()) {
+            state.scores[currentBlockName]++;
+        }
+        
+        state.answers[`${currentBlockName}-${state.itemIndex}-${state.subItemIndex}`] = answer;
+        
+        if (advance) {
+            nextItem();
+        }
+    };
+    
+    const processFreeRecall = (recalledItems, source) => {
+        recalledItems.forEach(item => {
+            const match = state.itemsToRecall.find(i => i.source === source && i.answer.toLowerCase() === item.toLowerCase() && !i.recalled);
+            if (match) {
+                match.recalled = 'free';
+                state.scores.recuperacao_livre++;
+                state.scores.recuperacao_total++;
+            }
+        });
+    };
+    
+    const processCuedRecallAnswer = (answer, item) => {
+        const originalItem = state.itemsToRecall.find(i => i.answer === item.answer && i.cue === item.cue);
+        if (originalItem && answer.toLowerCase() === originalItem.answer.toLowerCase()) {
+            originalItem.recalled = 'cued';
+            state.scores.recuperacao_pistas++;
+            state.scores.recuperacao_total++;
+        }
+        // Em vez de incrementar um índice, apenas marcamos como lembrado e renderizamos novamente.
+        // A próxima chamada para renderCuedRecall pegará o próximo item não lembrado.
+        render();
+    };
+
+    // --- FUNÇÕES DE RENDERIZAÇÃO ---
+    const render = () => {
+        app.innerHTML = '';
+        switch(state.screen) {
+            case 'welcome': renderWelcome(); break;
+            case 'profile': renderProfile(); break;
+            case 'instructions': renderInstructions(); break;
+            case 'test': renderTest(); break;
+            case 'results': renderResults(); break;
+        }
+    };
+    
+    const renderHeader = (title, showProgress = true) => {
+        let progress = 0;
+        if (showProgress) {
+             const totalItems = Object.values(testData.blocks).reduce((acc, val) => acc + val.length, 0) + 2; // +2 for recall stages
+             const currentBlockIndex = state.testFlow.indexOf(state.block);
+             const itemsDoneInPrevBlocks = state.testFlow.slice(0, currentBlockIndex)
+                .reduce((acc, blockKey) => acc + (testData.blocks[blockKey]?.length || 1), 0);
+             progress = ((itemsDoneInPrevBlocks + state.itemIndex) / totalItems) * 100;
+        }
+
+        return `
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">${title}</h1>
+            ${showProgress ? `
+            <div class="progress-bar-container">
+                <div class="progress-bar" style="width: ${progress}%"></div>
+            </div>` : '<div class="mb-6"></div>'}
+        `;
+    };
+
+    const renderWelcome = () => {
+        app.innerHTML = `
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-gray-800 mb-3">M@T Digital</h1>
+                <p class="text-lg text-gray-600 mb-8">Teste de Alteração da Memória</p>
+                <p class="text-left mb-8">Este é um teste para avaliar a memória. Por favor, encontre um local silencioso e concentre-se. As instruções serão faladas e escritas. Certifique-se de que o som do seu dispositivo está ligado.</p>
+                <button data-action="start_profile" class="btn btn-primary w-full sm:w-auto">Iniciar</button>
+            </div>
+        `;
+    };
+
+    const renderProfile = () => {
+         app.innerHTML = `
+            ${renderHeader('Perfil Mínimo', false)}
+            <div class="space-y-4">
+                <div>
+                    <label for="age" class="block text-sm font-medium text-gray-700 mb-1">Idade (anos completos)</label>
+                    <input type="number" id="age" class="input-field" value="${state.profile.age}">
+                </div>
+                <div>
+                    <label for="education" class="block text-sm font-medium text-gray-700 mb-1">Escolaridade (anos de estudo)</label>
+                    <input type="number" id="education" class="input-field" value="${state.profile.education}">
+                </div>
+            </div>
+            <div id="profile-error" class="text-red-600 text-sm mt-4 h-4"></div>
+            <div class="mt-4 text-right">
+                <button data-action="start_instructions" class="btn btn-primary">Continuar</button>
+            </div>
+        `;
+    };
+    
+    const renderInstructions = () => {
+        const text = 'O teste começará agora. Você verá e ouvirá palavras, frases e perguntas. Responda tocando nos botões. Se não souber a resposta, escolha a opção "Não me recordo", se disponível, ou prossiga. Tente o seu melhor.';
+        app.innerHTML = `
+            ${renderHeader('Instruções', false)}
+            <p class="text-lg text-gray-700 mb-8">${text}</p>
+            <div class="text-right">
+                <button data-action="start_test" class="btn btn-primary">Começar o Teste</button>
+            </div>
+        `;
+        speak(text);
+    };
+
+    const renderTest = () => {
+        state.lastActionTime = new Date();
+        const block = state.block;
+        switch(block) {
+            case 'codificacao':
+            case 'orientacao':
+            case 'semantica':
+                renderQuestionBlock(block);
+                break;
+            case 'free_recall':
+                renderFreeRecall();
+                break;
+            case 'cued_recall':
+                renderCuedRecall();
+                break;
+        }
+    };
+
+    const renderQuestionBlock = (blockName) => {
+        const item = testData.blocks[blockName][state.itemIndex];
+        let content = '';
+
+        switch(item.type) {
+            case 'instruction':
+                content = `<p class="text-xl text-center my-8">${item.text}</p><div class="text-center mt-8"><button data-action="next_item" class="btn btn-primary">Continuar</button></div>`;
+                speak(item.text);
+                break;
+            case 'word_presentation':
+                content = `<div class="text-center my-16"><h2 class="text-5xl font-bold">${item.item}</h2></div>`;
+                speak(item.item, () => {
+                    // Use callback to ensure audio finishes before timeout starts
+                    setTimeout(nextItem, testData.config.isi_ms);
+                });
+                break;
+            case 'sentence_presentation':
+                content = `<div class="text-center my-16"><h2 class="text-3xl font-semibold">${item.sentence}</h2></div>`;
+                speak(item.sentence, () => {
+                    setTimeout(nextItem, testData.config.word_presentation_ms + 500);
+                });
+                break;
+            case 'question_mc':
+            case 'sentence_questions':
+            case 'question_input':
+                content = renderQuestion(item, blockName);
+                break;
+        }
+        app.innerHTML = content;
+    };
+    
+    const renderQuestion = (item, blockName) => {
+        let prompt, options = [], questionType, answer, inputType;
+
+        if (item.type === 'sentence_questions') {
+            const subQuestion = item.questions[state.subItemIndex];
+            prompt = subQuestion.prompt;
+            options = subQuestion.options;
+            questionType = 'mc';
+        } else {
+            prompt = item.prompt;
+            questionType = item.type.includes('mc') ? 'mc' : 'input';
+            if (questionType === 'mc') {
+                options = item.get_options ? getDynamicAnswers(item.get_options).options : item.options;
+                options = shuffleArray([...options]);
+                if (!options.includes("Não me recordo")) options.push("Não me recordo");
+            } else {
+                inputType = item.input_type || 'text';
+            }
+        }
+        
+        speak(prompt);
+
+        const titleMap = {
+            codificacao: 'Memorização',
+            orientacao: 'Orientação no Tempo',
+            semantica: 'Conhecimentos Gerais'
+        };
+
+        return `
+            ${renderHeader(titleMap[blockName])}
+            <p class="text-xl text-gray-700 mb-6 min-h-[60px]">${prompt}</p>
+            ${ /* A frase foi removida desta tela para não dar pistas visuais durante a evocação. */ '' }
+            
+            ${questionType === 'mc' ? `
+            <div class="option-grid">
+                ${options.map(opt => `<button data-action="select_option" data-value="${opt}" class="option-btn ${state.selectedAnswer === opt ? 'selected' : ''}">${opt}</button>`).join('')}
+            </div>
+            ` : `
+            <div>
+                 <input type="${inputType}" id="input-answer" class="input-field" placeholder="Digite sua resposta">
+            </div>
+            `}
+            
+            <div class="mt-8 text-right">
+                <button data-action="submit_answer" class="btn btn-primary ${questionType === 'mc' && !state.selectedAnswer ? 'btn-disabled' : ''}" ${questionType === 'mc' && !state.selectedAnswer ? 'disabled' : ''}>Confirmar</button>
+            </div>
+        `;
+    };
+
+    const renderFreeRecall = () => {
+        if (state.recallStep === 'words') {
+            renderFreeRecallWords();
+        } else if (state.recallStep === 'sentences') {
+            renderFreeRecallSentences();
+        }
+    };
+    
+    const renderFreeRecallWords = () => {
+        const text = "Abaixo há uma lista de 20 palavras. Toque nas 5 palavras que você memorizou da lista inicial.";
+        app.innerHTML = `
+            ${renderHeader('Evocação Livre - Palavras')}
+            <p class="text-lg text-gray-700 mb-4">${text}</p>
+            <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+            <div class="mt-2 text-sm text-gray-500 text-right"><span id="selection-count">0</span> / 5 selecionadas</div>
+            <div class="mt-8 text-right">
+                <button data-action="submit_free_word_recall" class="btn btn-primary">Confirmar Palavras</button>
+            </div>
+        `;
+        speak(text);
+
+        const words = state.itemsToRecall.filter(i => i.source === 'word').map(i => i.answer);
+        const distractors = ['Maçã', 'Serrote', 'Cachorro', 'Violino', 'Azul', 'Copo', 'Livro', 'Janela', 'Porta', 'Caneta', 'Garfo', 'Sol', 'Lua', 'Navio', 'Trem'];
+        
+        const options = shuffleArray([...words, ...distractors]);
+        const grid = document.getElementById('recall-grid');
+        grid.innerHTML = options.map(opt => `<button data-action="toggle_recall_item" data-type="word" class="option-btn text-center justify-center">${opt}</button>`).join('');
+    };
+
+     const renderFreeRecallSentences = () => {
+        const text = "Agora, selecione as palavras que você se lembra das frases.";
+        app.innerHTML = `
+            ${renderHeader('Evocação Livre - Frases')}
+            <p class="text-lg text-gray-700 mb-4">${text}</p>
+            <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+            <div class="mt-8 text-right">
+                <button data-action="submit_free_sentence_recall" class="btn btn-primary">Confirmar e Finalizar</button>
+            </div>
+        `;
+        speak(text);
+        
+        const sentenceItems = state.itemsToRecall.filter(i => i.source.startsWith('sentence')).map(i => i.answer);
+        const distractors = ['Vinte', 'Pretos', 'Ração', 'João', 'Bola', 'Cachorro'];
+        
+        const options = shuffleArray([...sentenceItems, ...distractors]);
+        const grid = document.getElementById('recall-grid');
+        grid.innerHTML = options.map(opt => `<button data-action="toggle_recall_item" data-type="sentence" class="option-btn text-center justify-center">${opt}</button>`).join('');
+    };
+
+    const renderCuedRecall = () => {
+        const itemsForCuedRecall = state.itemsToRecall.filter(item => item.recalled === false);
+
+        if (itemsForCuedRecall.length === 0) {
+            // Avança para a próxima etapa (resultados) pois não há mais itens para evocar com pista.
+            // A função nextItem é chamada aqui para fazer a transição formal do bloco 'cued_recall' para 'results'.
+            // Como 'cued_recall' não tem itens em testData.blocks, nextItem vai avançar para o próximo bloco no testFlow.
+            nextItem();
+            return;
+        }
+
+        const item = itemsForCuedRecall[0]; // Sempre pega o primeiro da lista de não lembrados
+        const distractorMap = {
+            'Fruta': ['Maçã', 'Banana'], 'Ferramenta': ['Serrote', 'Martelo'], 'Animal': ['Gato', 'Leão'], 
+            'instrumento musical': ['Violino', 'Flauta'], 'Cor': ['Azul', 'Amarelo'],
+            'gatos': ['Vinte', 'Pretos', 'Ração'], 'o garoto': ['João', 'Bola']
+        };
+        const cueKey = item.cue.includes('gatos') ? 'gatos' : (item.cue.includes('garoto') ? 'o garoto' : item.cue.replace('Qual era a ', '').replace('?', '').replace('o ', ''));
+        const distractors = Object.entries(distractorMap).find(([k,v]) => cueKey.toLowerCase().includes(k.toLowerCase()))?.[1] || ['Opção A', 'Opção B'];
+
+        const options = shuffleArray([item.answer, ...distractors, 'Não me recordo']);
+        speak(item.cue);
+
+        app.innerHTML = `
+            ${renderHeader('Evocação com Pistas')}
+            <p class="text-xl text-gray-700 mb-6">${item.cue}</p>
+            <div class="option-grid">
+                ${options.map(opt => `<button data-action="select_option" data-value="${opt}" class="option-btn ${state.selectedAnswer === opt ? 'selected' : ''}">${opt}</button>`).join('')}
+            </div>
+            <div class="mt-8 text-right">
+                 <button data-action="submit_cued_recall" data-item='${JSON.stringify(item)}' class="btn btn-primary ${!state.selectedAnswer ? 'btn-disabled' : ''}" ${!state.selectedAnswer ? 'disabled' : ''}>Confirmar</button>
+            </div>
+        `;
+    };
+    
+    const renderResults = () => {
+        const totalScore = state.scores.codificacao + state.scores.orientacao + state.scores.semantica + state.scores.recuperacao_livre + state.scores.recuperacao_pistas;
+        const duration = Math.round((state.endTime - state.startTime) / 1000);
+
+        const scoreRow = (label, score, max) => `
+            <div class="flex justify-between items-center bg-gray-50 p-3 rounded-lg">
+                <span class="font-semibold text-gray-700">${label}</span>
+                <span class="text-lg font-bold text-gray-800">${score} / ${max}</span>
+            </div>
+        `;
+
+        app.innerHTML = `
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-gray-800 mb-4">Teste Concluído</h1>
+                <p class="text-gray-600 mb-8">Obrigado por sua participação. Abaixo estão os seus resultados.</p>
+            </div>
+            
+            <div class="space-y-3">
+                ${scoreRow('Memorização (Codificação)', state.scores.codificacao, 10)}
+                ${scoreRow('Orientação no Tempo', state.scores.orientacao, 5)}
+                ${scoreRow('Conhecimentos Gerais (Semântica)', state.scores.semantica, 15)}
+                ${scoreRow('Evocação Livre', state.scores.recuperacao_livre, 10)}
+                ${scoreRow('Evocação com Pistas', state.scores.recuperacao_pistas, 10)}
+                
+                <div class="flex justify-between items-center bg-blue-100 p-4 rounded-lg mt-4">
+                    <span class="font-semibold text-blue-800 text-lg">Pontuação Total</span>
+                    <span class="text-2xl font-bold text-blue-800">${totalScore} / 50</span>
+                </div>
+            </div>
+             ${state.qcFlags.length > 0 ? `<div class="mt-6 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded"><h4 class="font-bold">Alertas de Qualidade</h4><ul class="list-disc list-inside text-sm">${state.qcFlags.map(f => `<li>${f}</li>`).join('')}</ul></div>` : ''}
+
+            <div class="mt-8">
+                <h3 class="text-lg font-semibold mb-3 text-center">Exportar Resultados</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button data-action="export_pdf" class="btn btn-secondary">Salvar PDF</button>
+                    <button data-action="export_json" class="btn btn-secondary">Salvar JSON</button>
+                    <button data-action="export_csv" class="btn btn-secondary">Salvar CSV</button>
+                </div>
+            </div>
+
+            <div class="mt-8 text-center">
+                <button data-action="restart" class="btn btn-primary">Refazer o Teste</button>
+            </div>
+        `;
+    };
+
+    // --- FUNÇÕES DE EXPORTAÇÃO ---
+    const getExportData = () => {
+        const totalScore = state.scores.codificacao + state.scores.orientacao + state.scores.semantica + state.scores.recuperacao_livre + state.scores.recuperacao_pistas;
+        return {
+            testVersion: testData.version,
+            testDate: state.startTime.toISOString(),
+            durationSeconds: Math.round((state.endTime - state.startTime) / 1000),
+            profile: state.profile,
+            scores: {
+                codificacao: { score: state.scores.codificacao, max: 10 },
+                orientacao: { score: state.scores.orientacao, max: 5 },
+                semantica: { score: state.scores.semantica, max: 15 },
+                recuperacao_livre: { score: state.scores.recuperacao_livre, max: 10 },
+                recuperacao_pistas: { score: state.scores.recuperacao_pistas, max: 10 },
+                recuperacao_total: { score: state.scores.recuperacao_total, max: 10 },
+                total: { score: totalScore, max: 50 }
+            },
+            qualityFlags: state.qcFlags,
+            detailedAnswers: state.answers,
+            recallDetails: state.itemsToRecall
+        };
+    };
+
+    const downloadFile = (filename, content, type) => {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const exportJSON = () => {
+        const data = getExportData();
+        downloadFile(`MAT_Resultados_${new Date().toISOString()}.json`, JSON.stringify(data, null, 2), 'application/json');
+    };
+
+    const exportCSV = () => {
+        const data = getExportData();
+        let csv = 'Dominio,Pontos,Maximo\n';
+        Object.entries(data.scores).forEach(([key, value]) => {
+            if (key !== 'recuperacao_total') {
+               csv += `${key},${value.score},${value.max}\n`;
+            }
+        });
+        downloadFile(`MAT_Resultados_${new Date().toISOString()}.csv`, csv, 'text/csv');
+    };
+    
+    const exportPDF = () => {
+        const data = getExportData();
+        const doc = new jsPDF();
+        
+        doc.setFontSize(18);
+        doc.text("Resultados - M@T Digital", 105, 20, { align: 'center' });
+        
+        doc.setFontSize(12);
+        doc.text(`Data do Teste: ${new Date(data.testDate).toLocaleString('pt-BR')}`, 20, 40);
+        doc.text(`Duração: ${data.durationSeconds} segundos`, 20, 48);
+        doc.text(`Idade: ${data.profile.age} anos`, 20, 56);
+        doc.text(`Escolaridade: ${data.profile.education} anos`, 20, 64);
+        
+        doc.setFontSize(14);
+        doc.text("Pontuação por Domínio", 20, 80);
+        
+        const tableData = Object.entries(data.scores).filter(([k]) => k !== 'recuperacao_total').map(([key, value]) => [key, `${value.score} / ${value.max}`]);
+        doc.autoTable({
+            startY: 85,
+            head: [['Domínio', 'Pontuação']],
+            body: tableData,
+            theme: 'grid'
+        });
+
+        let finalY = doc.autoTable.previous.finalY + 15;
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Pontuação Total: ${data.scores.total.score} / ${data.scores.total.max}`, 20, finalY);
+
+        if (data.qualityFlags.length > 0) {
+            finalY += 15;
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text("Alertas de Qualidade:", 20, finalY);
+            doc.setFont('helvetica', 'normal');
+            finalY += 7;
+            data.qualityFlags.forEach(flag => {
+                doc.text(`- ${flag}`, 25, finalY);
+                finalY += 7;
+            });
+        }
+
+        finalY = doc.internal.pageSize.height - 20;
+        doc.setFontSize(8);
+        doc.text("Este é um relatório de rastreio. A interpretação deve ser feita por um profissional qualificado no contexto de uma avaliação clínica completa.", 105, finalY, { align: 'center' });
+
+        doc.save(`MAT_Resultados_${new Date().toISOString()}.pdf`);
+    };
+
+    // --- DELEGAÇÃO DE EVENTOS ---
+    app.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+
+        const action = target.dataset.action;
+
+        switch(action) {
+            case 'start_profile':
+                state.screen = 'profile';
+                render();
+                break;
+            case 'start_instructions': {
+                 state.profile.age = document.getElementById('age').value;
+                 state.profile.education = document.getElementById('education').value;
+                 const errorDiv = document.getElementById('profile-error');
+                 if (state.profile.age && state.profile.education) {
+                     state.screen = 'instructions';
+                     render();
+                 } else {
+                     errorDiv.textContent = 'Por favor, preencha a idade e a escolaridade.';
+                 }
+                break;
+            }
+            case 'start_test':
+                startTest();
+                break;
+            case 'next_item':
+                nextItem();
+                break;
+            case 'select_option': {
+                state.selectedAnswer = target.dataset.value;
+                app.querySelectorAll('[data-action="select_option"]').forEach(btn => btn.classList.remove('selected'));
+                target.classList.add('selected');
+                
+                const confirmBtn = app.querySelector('[data-action="submit_answer"], [data-action="submit_cued_recall"]');
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.classList.remove('btn-disabled');
+                }
+                break;
+            }
+            case 'submit_answer': {
+                let answer;
+                const currentItem = testData.blocks[state.block]?.[state.itemIndex];
+                if (!currentItem || state.isFeedbackActive) return;
+
+                if (currentItem.type.includes('mc')) {
+                    answer = state.selectedAnswer;
+                } else {
+                    answer = document.getElementById('input-answer').value;
+                }
+                if (answer === null || answer.trim() === '') return;
+                
+                if (state.block === 'codificacao' && currentItem.type === 'question_mc') {
+                    state.isFeedbackActive = true;
+                    target.disabled = true;
+                    target.classList.add('btn-disabled');
+
+                    processAnswer(answer, false);
+                    
+                    const correctAnswer = currentItem.answer;
+                    const isCorrect = String(answer).toLowerCase() === String(correctAnswer).toLowerCase();
+
+                    const optionButtons = app.querySelectorAll('.option-btn');
+                    optionButtons.forEach(btn => {
+                        btn.disabled = true;
+                        const btnValue = btn.dataset.value;
+                        if (btnValue.toLowerCase() === correctAnswer.toLowerCase()) {
+                            btn.classList.add('correct');
+                        }
+                        if (btnValue.toLowerCase() === answer.toLowerCase() && !isCorrect) {
+                            btn.classList.add('incorrect');
+                        }
+                    });
+                    
+                    const feedbackText = isCorrect ? "Certo." : `Incorreto. A resposta correta era ${correctAnswer}.`;
+                    
+                    speak(feedbackText, () => {
+                        // Callback é chamado quando o áudio termina
+                        nextItem();
+                        state.isFeedbackActive = false;
+                    });
+
+                } else {
+                    processAnswer(answer, true);
+                }
+                break;
+            }
+            case 'toggle_recall_item': {
+                const type = target.dataset.type;
+                if (type === 'word') {
+                    const selectedCount = app.querySelectorAll('.option-btn.selected').length;
+                    const selectionCounter = document.getElementById('selection-count');
+                    if (target.classList.contains('selected')) {
+                        target.classList.remove('selected');
+                    } else if (selectedCount < 5) {
+                        target.classList.add('selected');
+                    }
+                    const newCount = app.querySelectorAll('.option-btn.selected').length;
+                    selectionCounter.textContent = newCount;
+
+                    app.querySelectorAll('.option-btn:not(.selected)').forEach(btn => {
+                        btn.disabled = (newCount >= 5);
+                    });
+                } else {
+                     target.classList.toggle('selected');
+                }
+                break;
+            }
+            case 'submit_free_word_recall': {
+                const selectedItems = [...app.querySelectorAll('.option-btn.selected')].map(btn => btn.textContent);
+                processFreeRecall(selectedItems, 'word');
+                state.recallStep = 'sentences';
+                render();
+                break;
+            }
+            case 'submit_free_sentence_recall': {
+                const selectedItems = [...app.querySelectorAll('.option-btn.selected')].map(btn => btn.textContent);
+                processFreeRecall(selectedItems, 'sentence_1');
+                processFreeRecall(selectedItems, 'sentence_2');
+                nextItem();
+                break;
+            }
+            case 'submit_cued_recall':
+                if (state.selectedAnswer) {
+                    processCuedRecallAnswer(state.selectedAnswer, JSON.parse(target.dataset.item));
+                }
+                break;
+            case 'restart':
+                resetState();
+                render();
+                break;
+            case 'export_pdf': exportPDF(); break;
+            case 'export_json': exportJSON(); break;
+            case 'export_csv': exportCSV(); break;
+        }
+    });
+
+    init();
+    </script>
+
+</body>
+</html>
+
+
+
