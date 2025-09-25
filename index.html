@@ -1,9 +1,9 @@
-
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M@T Digital (Teste de Alteração da Memória)</title>
+    <title>M@T Digital - Teste de Alteração da Memória</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Bibliotecas para gerar PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -47,7 +47,7 @@
         .btn-primary {
             background-color: var(--primary-color);
         }
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             background-color: var(--primary-hover);
         }
         .btn-secondary {
@@ -59,13 +59,14 @@
         .btn-disabled {
             background-color: #d1d5db;
             cursor: not-allowed;
+            opacity: 0.6;
         }
         .option-grid {
             display: grid;
             grid-template-columns: 1fr;
             gap: 0.75rem;
         }
-         @media (min-width: 640px) {
+        @media (min-width: 640px) {
             .option-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
@@ -73,7 +74,7 @@
         .option-btn {
             width: 100%;
             padding: 1rem;
-            border: 1px solid #d1d5db;
+            border: 2px solid #d1d5db;
             border-radius: 0.75rem;
             font-size: 1rem;
             text-align: left;
@@ -86,32 +87,38 @@
             border-color: var(--primary-color);
         }
         .option-btn.selected {
-            background-color: #bfdbfe;
+            background-color: #dbeafe;
             border-color: var(--primary-color);
             font-weight: 600;
         }
-         .option-btn:disabled {
+        .option-btn:disabled {
             background-color: #e5e7eb;
             cursor: not-allowed;
             color: #9ca3af;
+            opacity: 0.7;
         }
         .option-btn.correct {
-            background-color: #dcfce7; /* green-100 */
-            border-color: #22c55e; /* green-500 */
-            color: #166534; /* green-800 */
+            background-color: #dcfce7;
+            border-color: #22c55e;
+            color: #166534;
             font-weight: 600;
         }
         .option-btn.incorrect {
-            background-color: #fee2e2; /* red-100 */
-            border-color: #ef4444; /* red-500 */
-            color: #991b1b; /* red-800 */
+            background-color: #fee2e2;
+            border-color: #ef4444;
+            color: #991b1b;
         }
         .input-field {
             width: 100%;
             padding: 0.75rem 1rem;
-            border: 1px solid #d1d5db;
+            border: 2px solid #d1d5db;
             border-radius: 0.5rem;
             font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary-color);
         }
         .progress-bar-container {
             width: 100%;
@@ -126,6 +133,37 @@
             border-radius: 9999px;
             transition: width 0.3s ease-in-out;
         }
+        .audio-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.75rem;
+            background-color: #fef3c7;
+            border: 1px solid #fbbf24;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            color: #92400e;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .alert {
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .alert-info {
+            background-color: #dbeafe;
+            border: 1px solid #60a5fa;
+            color: #1e40af;
+        }
+        .alert-warning {
+            background-color: #fef3c7;
+            border: 1px solid #fbbf24;
+            color: #92400e;
+        }
     </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
@@ -135,14 +173,9 @@
     </div>
 
     <script>
-    // --- INÍCIO DO MÓDULO DE DADOS DO TESTE (JSON) ---
+    // --- CONFIGURAÇÕES E ESTADO GLOBAL ---
     const testData = {
-        version: "MAT-Digital 1.0.4",
-        config: {
-            word_presentation_ms: 1500,
-            isi_ms: 500,
-            free_recall_window_s: 20,
-        },
+        version: "MAT-Digital 2.2.0",
         blocks: {
             codificacao: [
                 { type: 'instruction', text: 'Agora, vou dizer 5 palavras. Ouça com atenção e tente memorizá-las.' },
@@ -237,46 +270,128 @@
             ],
         }
     };
-    // --- FIM DO MÓDULO DE DADOS DO TESTE ---
-
     const app = document.getElementById('app');
     const { jsPDF } = window.jspdf;
-
     let state = {};
-    let tts = window.speechSynthesis;
-    let voices = [];
+    let currentAudio = null;
+
+    // --- SISTEMA DE TTS MELHORADO ---
+    class TTSManager {
+        constructor() {
+            this.cache = new Map();
+            this.isPlaying = false;
+        }
+
+        async speak(text, onEndCallback = null) {
+            if (this.isPlaying && currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+                this.isPlaying = false;
+            }
+
+            try {
+                const cacheKey = `google_translate_${text}`;
+                let audioUrl;
+
+                if (this.cache.has(cacheKey)) {
+                    audioUrl = this.cache.get(cacheKey);
+                } else {
+                    audioUrl = this.getGoogleTranslateAudio(text);
+                    this.cache.set(cacheKey, audioUrl);
+                }
+
+                await this.playAudio(text, audioUrl, onEndCallback);
+
+            } catch (error) {
+                console.error('Erro no TTS (Google Translate):', error);
+                await this.useBrowserTTS(text, onEndCallback);
+            }
+        }
+
+        getGoogleTranslateAudio(text) {
+            return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=pt-BR&client=tw-ob`;
+        }
+        
+        async useBrowserTTS(text, onEndCallback) {
+            if (!window.speechSynthesis) {
+                console.error('Browser TTS não suportado');
+                if (onEndCallback) onEndCallback();
+                return;
+            }
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'pt-BR';
+            utterance.rate = 1.1;
+            
+            const setVoice = () => {
+                const voices = window.speechSynthesis.getVoices();
+                // Prioriza vozes de alta qualidade (Safari/iOS) e depois padrões pt-BR
+                const ptVoices = voices.filter(v => v.lang.startsWith('pt-BR'));
+                const premiumVoice = ptVoices.find(v => v.name.includes('Luciana') || v.name.includes('Felipe')); // Nomes comuns em sistemas Apple
+                const defaultVoice = ptVoices.find(v => v.default);
+                
+                utterance.voice = premiumVoice || defaultVoice || ptVoices[0];
+
+                if (onEndCallback) {
+                    utterance.onend = onEndCallback;
+                }
+                
+                window.speechSynthesis.speak(utterance);
+            };
+
+            if (window.speechSynthesis.getVoices().length === 0 && 'onvoiceschanged' in window.speechSynthesis) {
+                window.speechSynthesis.onvoiceschanged = setVoice;
+            } else {
+                setVoice();
+            }
+        }
+
+        async playAudio(originalText, url, onEndCallback) {
+            return new Promise((resolve) => {
+                currentAudio = new Audio(url);
+                this.isPlaying = true;
+                currentAudio.onended = () => {
+                    this.isPlaying = false;
+                    if (onEndCallback) onEndCallback();
+                    resolve();
+                };
+                currentAudio.onerror = (e) => {
+                    console.error('Erro ao tocar áudio da API Google:', e);
+                    this.isPlaying = false;
+                    this.useBrowserTTS(originalText, onEndCallback);
+                    resolve();
+                };
+                currentAudio.play().catch(error => {
+                    console.error('Erro ao iniciar reprodução:', error);
+                    this.isPlaying = false;
+                    this.useBrowserTTS(originalText, onEndCallback);
+                    resolve();
+                });
+            });
+        }
+    }
+    const ttsManager = new TTSManager();
 
     // --- FUNÇÕES AUXILIARES ---
     const speak = (text, onEndCallback = null) => {
-        if (tts.speaking) {
-            tts.cancel();
-        }
-        const utterance = new SpeechSynthesisUtterance(text);
+        const indicator = document.getElementById('audio-indicator');
+        if (indicator) indicator.style.display = 'inline-flex';
         
-        const ptVoices = voices.filter(voice => voice.lang === 'pt-BR');
-        if (ptVoices.length > 0) {
-            utterance.voice = ptVoices[0];
-        }
-        
-        utterance.lang = 'pt-BR';
-        utterance.volume = 1;
-        utterance.pitch = 1;
-        utterance.rate = 1.25;
-
-        if (onEndCallback) {
-            utterance.onend = onEndCallback;
-        }
-
-        tts.speak(utterance);
+        ttsManager.speak(text, () => {
+            if (indicator) indicator.style.display = 'none';
+            if (onEndCallback) onEndCallback();
+        });
     };
-    
+
     const shuffleArray = (array) => {
-        for (let i = array.length - 1; i > 0; i--) {
+        const arr = [...array];
+        for (let i = arr.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
+            [arr[i], arr[j]] = [arr[j], arr[i]];
         }
-        return array;
-    }
+        return arr;
+    };
 
     const getDynamicAnswers = (type) => {
         const now = new Date();
@@ -287,7 +402,7 @@
         const month = now.getMonth();
         let season;
         // Aproximação para Hemisfério Sul
-        if (month <= 2 || month == 11) season = 'Verão';
+        if (month <= 2 || month === 11) season = 'Verão';
         else if (month >= 3 && month <= 5) season = 'Outono';
         else if (month >= 6 && month <= 8) season = 'Inverno';
         else season = 'Primavera';
@@ -301,23 +416,20 @@
             default: return {};
         }
     };
-    
+
     // --- INICIALIZAÇÃO ---
     const init = () => {
-        const loadVoices = () => {
-            voices = tts.getVoices();
-            if (voices.length === 0) {
-                tts.onvoiceschanged = loadVoices;
-            }
-        };
-        loadVoices();
-        
         resetState();
         render();
-
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden && state.screen !== 'welcome' && state.screen !== 'results') {
-                state.qcFlags.push('O usuário trocou de aba durante o teste.');
+            if (document.hidden && state.screen === 'test') {
+                state.qcFlags.push(`Usuário saiu da aba às ${new Date().toLocaleTimeString('pt-BR')}`);
+            }
+        });
+        window.addEventListener('beforeunload', (e) => {
+            if (state.screen === 'test') {
+                e.preventDefault();
+                e.returnValue = 'Você tem certeza que deseja sair? O progresso do teste será perdido.';
             }
         });
     };
@@ -330,7 +442,7 @@
             itemIndex: 0,
             subItemIndex: 0,
             answers: {},
-            scores: { codificacao: 0, orientacao: 0, semantica: 0, recuperacao_livre: 0, recuperacao_pistas: 0, recuperacao_total: 0 },
+            scores: { codificacao: 0, orientacao: 0, semantica: 0, recuperacao_livre: 0, recuperacao_pistas: 0 },
             startTime: null,
             endTime: null,
             qcFlags: [],
@@ -339,7 +451,8 @@
             selectedAnswer: null,
             lastActionTime: null,
             isFeedbackActive: false,
-            testFlow: ['codificacao', 'orientacao', 'semantica', 'free_recall', 'cued_recall']
+            testFlow: ['codificacao', 'orientacao', 'semantica', 'free_recall', 'cued_recall'],
+            responseTimings: []
         };
     };
 
@@ -354,7 +467,6 @@
         const recallWords = testData.blocks.codificacao.filter(i => i.type === 'question_mc').map(i => ({ cue: i.cue, answer: i.answer, recalled: false, source: 'word' }));
         const recallSentences = testData.blocks.codificacao.filter(i => i.type === 'sentence_questions').flatMap((s, idx) => s.recall_items.map(ri => ({ cue: `Da frase sobre "${idx === 0 ? 'gatos' : 'o garoto'}"`, answer: ri, recalled: false, source: `sentence_${idx+1}` })));
         state.itemsToRecall = [...recallWords, ...recallSentences];
-        
         render();
     };
 
@@ -362,10 +474,9 @@
         state.selectedAnswer = null;
         state.lastActionTime = new Date();
         const currentBlockData = testData.blocks[state.block];
-
         if (state.block === 'codificacao') {
-            const currentItem = currentBlockData[state.itemIndex];
-            if (currentItem.type === 'sentence_questions' && state.subItemIndex < currentItem.questions.length - 1) {
+            const currentItem = currentBlockData?.[state.itemIndex];
+            if (currentItem?.type === 'sentence_questions' && state.subItemIndex < currentItem.questions.length - 1) {
                 state.subItemIndex++;
             } else {
                 state.itemIndex++;
@@ -374,12 +485,12 @@
         } else {
             state.itemIndex++;
         }
-
         if (!currentBlockData || state.itemIndex >= currentBlockData.length) {
             const currentBlockIndex = state.testFlow.indexOf(state.block);
             if (currentBlockIndex < state.testFlow.length - 1) {
                 state.block = state.testFlow[currentBlockIndex + 1];
                 state.itemIndex = 0;
+                state.subItemIndex = 0;
             } else {
                 state.endTime = new Date();
                 state.screen = 'results';
@@ -390,29 +501,31 @@
     
     const processAnswer = (answer, advance = true) => {
         const rt = new Date() - state.lastActionTime;
-        if (rt < 200) {
-            state.qcFlags.push(`Resposta rápida incomum (${rt}ms) no item ${state.block}-${state.itemIndex}`);
+        state.responseTimings.push({ block: state.block, item: state.itemIndex, responseTime: rt, answer: answer });
+        if (rt < 300) {
+            state.qcFlags.push(`Resposta muito rápida (${rt}ms) em ${state.block}-${state.itemIndex}`);
         }
         
         const currentBlockName = state.block;
-        if (!testData.blocks[currentBlockName] || !testData.blocks[currentBlockName][state.itemIndex]) return;
-
-        const currentItem = testData.blocks[currentBlockName][state.itemIndex];
+        const currentItem = testData.blocks[currentBlockName]?.[state.itemIndex];
+        if (!currentItem) return;
+        
         let correctAnswer;
-
         if (currentItem.get_answer) {
-             correctAnswer = getDynamicAnswers(currentItem.get_answer).answer;
+            correctAnswer = getDynamicAnswers(currentItem.get_answer).answer;
         } else if (currentItem.type === 'sentence_questions') {
             correctAnswer = currentItem.questions[state.subItemIndex].answer;
         } else {
             correctAnswer = currentItem.answer;
         }
         
-        if (String(answer).toLowerCase() === String(correctAnswer).toLowerCase()) {
+        const isCorrect = String(answer).trim().toLowerCase() === String(correctAnswer).trim().toLowerCase();
+        if (isCorrect) {
             state.scores[currentBlockName]++;
         }
         
-        state.answers[`${currentBlockName}-${state.itemIndex}-${state.subItemIndex}`] = answer;
+        const answerKey = `${currentBlockName}-${state.itemIndex}-${state.subItemIndex}`;
+        state.answers[answerKey] = { given: answer, correct: correctAnswer, isCorrect: isCorrect, responseTime: rt };
         
         if (advance) {
             nextItem();
@@ -425,20 +538,21 @@
             if (match) {
                 match.recalled = 'free';
                 state.scores.recuperacao_livre++;
-                state.scores.recuperacao_total++;
             }
         });
     };
     
     const processCuedRecallAnswer = (answer, item) => {
         const originalItem = state.itemsToRecall.find(i => i.answer === item.answer && i.cue === item.cue);
-        if (originalItem && answer.toLowerCase() === originalItem.answer.toLowerCase()) {
-            originalItem.recalled = 'cued';
-            state.scores.recuperacao_pistas++;
-            state.scores.recuperacao_total++;
+        if (originalItem && !originalItem.recalled) {
+            const isCorrect = answer.toLowerCase() === originalItem.answer.toLowerCase();
+            if (isCorrect) {
+                state.scores.recuperacao_pistas++;
+            }
+            // ESSENCIAL: Marca o item como 'tentado' para avançar, independentemente da resposta
+            originalItem.recalled = 'attempted';
         }
-        // Em vez de incrementar um índice, apenas marcamos como lembrado e renderizamos novamente.
-        // A próxima chamada para renderCuedRecall pegará o próximo item não lembrado.
+        // Re-render para mostrar a próxima pergunta com pista ou avançar para os resultados
         render();
     };
 
@@ -456,20 +570,28 @@
     
     const renderHeader = (title, showProgress = true) => {
         let progress = 0;
-        if (showProgress) {
-             const totalItems = Object.values(testData.blocks).reduce((acc, val) => acc + val.length, 0) + 2; // +2 for recall stages
-             const currentBlockIndex = state.testFlow.indexOf(state.block);
-             const itemsDoneInPrevBlocks = state.testFlow.slice(0, currentBlockIndex)
-                .reduce((acc, blockKey) => acc + (testData.blocks[blockKey]?.length || 1), 0);
-             progress = ((itemsDoneInPrevBlocks + state.itemIndex) / totalItems) * 100;
+        if (showProgress && state.block) {
+            const totalItems = Object.values(testData.blocks).reduce((acc, val) => acc + val.length, 0) + 10;
+            const currentBlockIndex = state.testFlow.indexOf(state.block);
+            const itemsDoneInPrevBlocks = state.testFlow.slice(0, currentBlockIndex)
+                .filter(b => testData.blocks[b])
+                .reduce((acc, blockKey) => acc + testData.blocks[blockKey].length, 0);
+            progress = Math.min(100, ((itemsDoneInPrevBlocks + state.itemIndex) / totalItems) * 100);
         }
-
         return `
             <h1 class="text-2xl font-bold text-gray-800 mb-2">${title}</h1>
             ${showProgress ? `
             <div class="progress-bar-container">
                 <div class="progress-bar" style="width: ${progress}%"></div>
             </div>` : '<div class="mb-6"></div>'}
+            <div id="audio-indicator" class="audio-indicator" style="display: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18V5l12-2v13"></path>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <circle cx="18" cy="16" r="3"></circle>
+                </svg>
+                <span>Reproduzindo áudio...</span>
+            </div>
         `;
     };
 
@@ -477,39 +599,64 @@
         app.innerHTML = `
             <div class="text-center">
                 <h1 class="text-3xl font-bold text-gray-800 mb-3">M@T Digital</h1>
-                <p class="text-lg text-gray-600 mb-8">Teste de Alteração da Memória</p>
-                <p class="text-left mb-8">Este é um teste para avaliar a memória. Por favor, encontre um local silencioso e concentre-se. As instruções serão faladas e escritas. Certifique-se de que o som do seu dispositivo está ligado.</p>
-                <button data-action="start_profile" class="btn btn-primary w-full sm:w-auto">Iniciar</button>
+                <p class="text-lg text-gray-600 mb-6">Teste de Alteração da Memória</p>
+                
+                <div class="alert alert-info text-left mb-6">
+                    <p class="font-semibold mb-2">📢 Importante:</p>
+                    <ul class="list-disc list-inside space-y-1 text-sm">
+                        <li>Encontre um local silencioso e sem distrações.</li>
+                        <li>O teste leva aproximadamente 10-15 minutos.</li>
+                        <li>As instruções serão faladas e escritas.</li>
+                        <li>Certifique-se de que o som está ativado.</li>
+                    </ul>
+                </div>
+                                
+                <button data-action="start_profile" class="btn btn-primary w-full mt-4">
+                    Iniciar Teste
+                </button>
             </div>
         `;
     };
 
     const renderProfile = () => {
-         app.innerHTML = `
-            ${renderHeader('Perfil Mínimo', false)}
+        app.innerHTML = `
+            ${renderHeader('Informações do Participante', false)}
             <div class="space-y-4">
                 <div>
-                    <label for="age" class="block text-sm font-medium text-gray-700 mb-1">Idade (anos completos)</label>
-                    <input type="number" id="age" class="input-field" value="${state.profile.age}">
+                    <label for="age" class="block text-sm font-medium text-gray-700 mb-1">
+                        Idade (anos completos) <span class="text-red-500">*</span>
+                    </label>
+                    <input type="number" id="age" class="input-field" value="${state.profile.age}" min="18" max="120" required>
                 </div>
                 <div>
-                    <label for="education" class="block text-sm font-medium text-gray-700 mb-1">Escolaridade (anos de estudo)</label>
-                    <input type="number" id="education" class="input-field" value="${state.profile.education}">
+                    <label for="education" class="block text-sm font-medium text-gray-700 mb-1">
+                        Escolaridade (anos de estudo) <span class="text-red-500">*</span>
+                    </label>
+                    <input type="number" id="education" class="input-field" value="${state.profile.education}" min="0" max="30" required>
+                    <p class="help-text">Informe o total de anos de educação formal completados.</p>
                 </div>
             </div>
-            <div id="profile-error" class="text-red-600 text-sm mt-4 h-4"></div>
-            <div class="mt-4 text-right">
+            <div id="profile-error" class="text-red-600 text-sm mt-4 min-h-[20px]"></div>
+            <div class="mt-6 flex gap-3 justify-end">
+                <button data-action="back_to_welcome" class="btn btn-secondary">Voltar</button>
                 <button data-action="start_instructions" class="btn btn-primary">Continuar</button>
             </div>
         `;
     };
     
     const renderInstructions = () => {
-        const text = 'O teste começará agora. Você verá e ouvirá palavras, frases e perguntas. Responda tocando nos botões. Se não souber a resposta, escolha a opção "Não me recordo", se disponível, ou prossiga. Tente o seu melhor.';
+        const text = 'O teste começará agora. Você verá e ouvirá palavras, frases e perguntas. Responda tocando nos botões. Se não souber uma resposta, escolha "Não me recordo", quando disponível. Faça o seu melhor.';
         app.innerHTML = `
             ${renderHeader('Instruções', false)}
-            <p class="text-lg text-gray-700 mb-8">${text}</p>
-            <div class="text-right">
+            <div class="space-y-4">
+                <p class="text-lg text-gray-700">${text}</p>
+                <div class="alert alert-warning">
+                    <p class="font-semibold">⚠️ Atenção:</p>
+                    <p class="text-sm mt-1">Não use o botão "voltar" do navegador ou recarregue a página, pois isso resultará na perda do progresso.</p>
+                </div>
+            </div>
+            <div class="mt-8 flex gap-3 justify-end">
+                <button data-action="back_to_profile" class="btn btn-secondary">Voltar</button>
                 <button data-action="start_test" class="btn btn-primary">Começar o Teste</button>
             </div>
         `;
@@ -536,25 +683,23 @@
 
     const renderQuestionBlock = (blockName) => {
         const item = testData.blocks[blockName][state.itemIndex];
+        if (!item) {
+            nextItem();
+            return;
+        }
         let content = '';
-
         switch(item.type) {
             case 'instruction':
                 content = `<p class="text-xl text-center my-8">${item.text}</p><div class="text-center mt-8"><button data-action="next_item" class="btn btn-primary">Continuar</button></div>`;
                 speak(item.text);
                 break;
             case 'word_presentation':
-                content = `<div class="text-center my-16"><h2 class="text-5xl font-bold">${item.item}</h2></div>`;
-                speak(item.item, () => {
-                    // Use callback to ensure audio finishes before timeout starts
-                    setTimeout(nextItem, testData.config.isi_ms);
-                });
+                content = `<div class="text-center my-16"><h2 class="text-5xl font-bold text-gray-800">${item.item}</h2></div>`;
+                speak(item.item, () => { setTimeout(nextItem, 500); });
                 break;
             case 'sentence_presentation':
-                content = `<div class="text-center my-16"><h2 class="text-3xl font-semibold">${item.sentence}</h2></div>`;
-                speak(item.sentence, () => {
-                    setTimeout(nextItem, testData.config.word_presentation_ms + 500);
-                });
+                content = `<div class="text-center my-12 px-4"><h2 class="text-3xl font-semibold text-gray-800 leading-relaxed">${item.sentence}</h2></div>`;
+                speak(item.sentence, () => { setTimeout(nextItem, 1500); });
                 break;
             case 'question_mc':
             case 'sentence_questions':
@@ -566,8 +711,7 @@
     };
     
     const renderQuestion = (item, blockName) => {
-        let prompt, options = [], questionType, answer, inputType;
-
+        let prompt, options = [], questionType, inputType;
         if (item.type === 'sentence_questions') {
             const subQuestion = item.questions[state.subItemIndex];
             prompt = subQuestion.prompt;
@@ -577,8 +721,8 @@
             prompt = item.prompt;
             questionType = item.type.includes('mc') ? 'mc' : 'input';
             if (questionType === 'mc') {
-                options = item.get_options ? getDynamicAnswers(item.get_options).options : item.options;
-                options = shuffleArray([...options]);
+                options = item.get_options ? getDynamicAnswers(item.get_options).options : [...item.options];
+                options = shuffleArray(options);
                 if (!options.includes("Não me recordo")) options.push("Não me recordo");
             } else {
                 inputType = item.input_type || 'text';
@@ -586,106 +730,89 @@
         }
         
         speak(prompt);
-
-        const titleMap = {
-            codificacao: 'Memorização',
-            orientacao: 'Orientação no Tempo',
-            semantica: 'Conhecimentos Gerais'
-        };
-
+        const titleMap = { codificacao: 'Memorização', orientacao: 'Orientação no Tempo', semantica: 'Conhecimentos Gerais' };
         return `
-            ${renderHeader(titleMap[blockName])}
+            ${renderHeader(titleMap[blockName] || 'Teste')}
             <p class="text-xl text-gray-700 mb-6 min-h-[60px]">${prompt}</p>
-            ${ /* A frase foi removida desta tela para não dar pistas visuais durante a evocação. */ '' }
-            
             ${questionType === 'mc' ? `
             <div class="option-grid">
                 ${options.map(opt => `<button data-action="select_option" data-value="${opt}" class="option-btn ${state.selectedAnswer === opt ? 'selected' : ''}">${opt}</button>`).join('')}
-            </div>
-            ` : `
-            <div>
-                 <input type="${inputType}" id="input-answer" class="input-field" placeholder="Digite sua resposta">
-            </div>
-            `}
-            
+            </div>` : `
+            <div><input type="${inputType}" id="input-answer" class="input-field" placeholder="Digite sua resposta" autocomplete="off"></div>`}
             <div class="mt-8 text-right">
                 <button data-action="submit_answer" class="btn btn-primary ${questionType === 'mc' && !state.selectedAnswer ? 'btn-disabled' : ''}" ${questionType === 'mc' && !state.selectedAnswer ? 'disabled' : ''}>Confirmar</button>
             </div>
         `;
     };
-
+    
     const renderFreeRecall = () => {
         if (state.recallStep === 'words') {
             renderFreeRecallWords();
-        } else if (state.recallStep === 'sentences') {
+        } else {
             renderFreeRecallSentences();
         }
     };
     
     const renderFreeRecallWords = () => {
-        const text = "Abaixo há uma lista de 20 palavras. Toque nas 5 palavras que você memorizou da lista inicial.";
+        const text = "Agora, selecione as 5 palavras que você memorizou no início do teste.";
         app.innerHTML = `
             ${renderHeader('Evocação Livre - Palavras')}
             <p class="text-lg text-gray-700 mb-4">${text}</p>
+            <div class="alert alert-info mb-4"><p class="text-sm">Toque para selecionar. Você pode escolher até 5 palavras.</p></div>
             <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
-            <div class="mt-2 text-sm text-gray-500 text-right"><span id="selection-count">0</span> / 5 selecionadas</div>
-            <div class="mt-8 text-right">
-                <button data-action="submit_free_word_recall" class="btn btn-primary">Confirmar Palavras</button>
-            </div>
+            <div class="mt-3 text-right"><span class="text-sm text-gray-600">Selecionadas: <span id="selection-count" class="font-bold">0</span> / 5</span></div>
+            <div class="mt-6 text-right"><button data-action="submit_free_word_recall" class="btn btn-primary">Confirmar Seleção</button></div>
         `;
         speak(text);
-
-        const words = state.itemsToRecall.filter(i => i.source === 'word').map(i => i.answer);
-        const distractors = ['Maçã', 'Serrote', 'Cachorro', 'Violino', 'Azul', 'Copo', 'Livro', 'Janela', 'Porta', 'Caneta', 'Garfo', 'Sol', 'Lua', 'Navio', 'Trem'];
         
-        const options = shuffleArray([...words, ...distractors]);
+        const words = state.itemsToRecall.filter(i => i.source === 'word').map(i => i.answer);
+        const distractors = ['Maçã','Martelo','Cachorro','Violino','Azul','Pera','Chave','Tigre','Harpa','Roxo','Copo','Livro','Porta','Caneta','Garfo'];
+        const options = shuffleArray([...words, ...shuffleArray(distractors).slice(0, 15)]);
+        
         const grid = document.getElementById('recall-grid');
-        grid.innerHTML = options.map(opt => `<button data-action="toggle_recall_item" data-type="word" class="option-btn text-center justify-center">${opt}</button>`).join('');
+        grid.innerHTML = options.map(opt => `<button data-action="toggle_recall_item" data-type="word" class="option-btn text-center">${opt}</button>`).join('');
     };
-
-     const renderFreeRecallSentences = () => {
-        const text = "Agora, selecione as palavras que você se lembra das frases.";
+    
+    const renderFreeRecallSentences = () => {
+        const text = "Agora, selecione as palavras que você se lembra das duas frases apresentadas.";
         app.innerHTML = `
             ${renderHeader('Evocação Livre - Frases')}
             <p class="text-lg text-gray-700 mb-4">${text}</p>
-            <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
-            <div class="mt-8 text-right">
-                <button data-action="submit_free_sentence_recall" class="btn btn-primary">Confirmar e Finalizar</button>
-            </div>
+            <div class="alert alert-info mb-4"><p class="text-sm">Selecione todas as palavras que você lembrar.</p></div>
+            <div id="recall-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+            <div class="mt-6 text-right"><button data-action="submit_free_sentence_recall" class="btn btn-primary">Confirmar e Continuar</button></div>
         `;
         speak(text);
         
         const sentenceItems = state.itemsToRecall.filter(i => i.source.startsWith('sentence')).map(i => i.answer);
-        const distractors = ['Vinte', 'Pretos', 'Ração', 'João', 'Bola', 'Cachorro'];
-        
+        const distractors = ['Vinte','Pretos','Ração','Pedro','Bola','Cão','Gata','Quarenta'];
         const options = shuffleArray([...sentenceItems, ...distractors]);
+        
         const grid = document.getElementById('recall-grid');
-        grid.innerHTML = options.map(opt => `<button data-action="toggle_recall_item" data-type="sentence" class="option-btn text-center justify-center">${opt}</button>`).join('');
+        grid.innerHTML = options.map(opt => `<button data-action="toggle_recall_item" data-type="sentence" class="option-btn text-center">${opt}</button>`).join('');
     };
 
     const renderCuedRecall = () => {
-        const itemsForCuedRecall = state.itemsToRecall.filter(item => item.recalled === false);
-
+        const itemsForCuedRecall = state.itemsToRecall.filter(item => !item.recalled);
         if (itemsForCuedRecall.length === 0) {
-            // Avança para a próxima etapa (resultados) pois não há mais itens para evocar com pista.
-            // A função nextItem é chamada aqui para fazer a transição formal do bloco 'cued_recall' para 'results'.
-            // Como 'cued_recall' não tem itens em testData.blocks, nextItem vai avançar para o próximo bloco no testFlow.
             nextItem();
             return;
         }
-
-        const item = itemsForCuedRecall[0]; // Sempre pega o primeiro da lista de não lembrados
+        const item = itemsForCuedRecall[0];
+        
         const distractorMap = {
-            'Fruta': ['Maçã', 'Banana'], 'Ferramenta': ['Serrote', 'Martelo'], 'Animal': ['Gato', 'Leão'], 
-            'instrumento musical': ['Violino', 'Flauta'], 'Cor': ['Azul', 'Amarelo'],
-            'gatos': ['Vinte', 'Pretos', 'Ração'], 'o garoto': ['João', 'Bola']
+            'fruta': ['Maçã', 'Banana', 'Uva'], 'ferramenta': ['Serrote', 'Martelo', 'Alicate'],
+            'animal': ['Gato', 'Leão', 'Cachorro'], 'instrumento': ['Violino', 'Flauta', 'Guitarra'],
+            'cor': ['Azul', 'Amarelo', 'Vermelho'], 'gatos': ['Vinte', 'Pretos', 'Ração'],
+            'garoto': ['Pedro', 'Bola', 'Carrinho']
         };
-        const cueKey = item.cue.includes('gatos') ? 'gatos' : (item.cue.includes('garoto') ? 'o garoto' : item.cue.replace('Qual era a ', '').replace('?', '').replace('o ', ''));
-        const distractors = Object.entries(distractorMap).find(([k,v]) => cueKey.toLowerCase().includes(k.toLowerCase()))?.[1] || ['Opção A', 'Opção B'];
-
-        const options = shuffleArray([item.answer, ...distractors, 'Não me recordo']);
+        let cueKey = item.cue.toLowerCase().replace(/[:?]/g, '');
+        const key = Object.keys(distractorMap).find(k => cueKey.includes(k));
+        const distractors = (key ? distractorMap[key] : ['Opção A', 'Opção B']).filter(d => d !== item.answer);
+        
+        const options = shuffleArray([item.answer, ...shuffleArray(distractors).slice(0, 3), 'Não me recordo']);
+        
         speak(item.cue);
-
         app.innerHTML = `
             ${renderHeader('Evocação com Pistas')}
             <p class="text-xl text-gray-700 mb-6">${item.cue}</p>
@@ -697,56 +824,59 @@
             </div>
         `;
     };
-    
-    const renderResults = () => {
-        const totalScore = state.scores.codificacao + state.scores.orientacao + state.scores.semantica + state.scores.recuperacao_livre + state.scores.recuperacao_pistas;
-        const duration = Math.round((state.endTime - state.startTime) / 1000);
 
-        const scoreRow = (label, score, max) => `
-            <div class="flex justify-between items-center bg-gray-50 p-3 rounded-lg">
-                <span class="font-semibold text-gray-700">${label}</span>
-                <span class="text-lg font-bold text-gray-800">${score} / ${max}</span>
+    const renderResults = () => {
+        const totalScore = Object.values(state.scores).reduce((sum, score) => sum + score, 0);
+        const duration = Math.round((state.endTime - state.startTime) / 1000);
+        const minutes = Math.floor(duration / 60);
+        const seconds = duration % 60;
+
+        const scoreRow = (label, score, max, isTotal = false) => `
+            <div class="flex justify-between items-center ${isTotal ? 'bg-blue-100' : 'bg-gray-50'} p-3 rounded-lg ${isTotal ? 'border-2 border-blue-300' : ''}">
+                <span class="${isTotal ? 'font-bold text-blue-800' : 'font-semibold text-gray-700'}">${label}</span>
+                <span class="${isTotal ? 'text-xl font-bold text-blue-800' : 'text-lg font-bold text-gray-800'}">${score} / ${max}</span>
             </div>
         `;
-
+        
         app.innerHTML = `
             <div class="text-center">
-                <h1 class="text-3xl font-bold text-gray-800 mb-4">Teste Concluído</h1>
-                <p class="text-gray-600 mb-8">Obrigado por sua participação. Abaixo estão os seus resultados.</p>
+                <h1 class="text-3xl font-bold text-gray-800 mb-2">Teste Concluído!</h1>
+                <p class="text-gray-600 mb-6">Tempo total: ${minutes}m ${seconds}s</p>
             </div>
-            
             <div class="space-y-3">
                 ${scoreRow('Memorização (Codificação)', state.scores.codificacao, 10)}
                 ${scoreRow('Orientação no Tempo', state.scores.orientacao, 5)}
-                ${scoreRow('Conhecimentos Gerais (Semântica)', state.scores.semantica, 15)}
+                ${scoreRow('Conhecimentos Gerais', state.scores.semantica, 15)}
                 ${scoreRow('Evocação Livre', state.scores.recuperacao_livre, 10)}
                 ${scoreRow('Evocação com Pistas', state.scores.recuperacao_pistas, 10)}
-                
-                <div class="flex justify-between items-center bg-blue-100 p-4 rounded-lg mt-4">
-                    <span class="font-semibold text-blue-800 text-lg">Pontuação Total</span>
-                    <span class="text-2xl font-bold text-blue-800">${totalScore} / 50</span>
-                </div>
+                ${scoreRow('PONTUAÇÃO TOTAL', totalScore, 50, true)}
             </div>
-             ${state.qcFlags.length > 0 ? `<div class="mt-6 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded"><h4 class="font-bold">Alertas de Qualidade</h4><ul class="list-disc list-inside text-sm">${state.qcFlags.map(f => `<li>${f}</li>`).join('')}</ul></div>` : ''}
-
+            ${state.qcFlags.length > 0 ? `
+            <div class="mt-6 p-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded">
+                <h4 class="font-bold mb-2">⚠️ Observações de Qualidade</h4>
+                <ul class="list-disc list-inside text-sm space-y-1">${state.qcFlags.map(f => `<li>${f}</li>`).join('')}</ul>
+            </div>` : ''}
             <div class="mt-8">
-                <h3 class="text-lg font-semibold mb-3 text-center">Exportar Resultados</h3>
+                <h3 class="text-lg font-semibold mb-3 text-center">📥 Exportar Resultados</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <button data-action="export_pdf" class="btn btn-secondary">Salvar PDF</button>
-                    <button data-action="export_json" class="btn btn-secondary">Salvar JSON</button>
-                    <button data-action="export_csv" class="btn btn-secondary">Salvar CSV</button>
+                    <button data-action="export_pdf" class="btn btn-secondary">📄 PDF</button>
+                    <button data-action="export_json" class="btn btn-secondary">💾 JSON</button>
+                    <button data-action="export_csv" class="btn btn-secondary">📊 CSV</button>
                 </div>
             </div>
-
             <div class="mt-8 text-center">
-                <button data-action="restart" class="btn btn-primary">Refazer o Teste</button>
+                <button data-action="restart" class="btn btn-primary">🔄 Novo Teste</button>
+            </div>
+             <div class="mt-6 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                <p class="font-semibold mb-1">📋 Nota Importante:</p>
+                <p>Este é um teste de rastreio cognitivo. A interpretação dos resultados deve ser realizada por um profissional de saúde qualificado.</p>
             </div>
         `;
     };
 
     // --- FUNÇÕES DE EXPORTAÇÃO ---
     const getExportData = () => {
-        const totalScore = state.scores.codificacao + state.scores.orientacao + state.scores.semantica + state.scores.recuperacao_livre + state.scores.recuperacao_pistas;
+        const totalScore = Object.values(state.scores).reduce((sum, score) => sum + score, 0);
         return {
             testVersion: testData.version,
             testDate: state.startTime.toISOString(),
@@ -758,12 +888,12 @@
                 semantica: { score: state.scores.semantica, max: 15 },
                 recuperacao_livre: { score: state.scores.recuperacao_livre, max: 10 },
                 recuperacao_pistas: { score: state.scores.recuperacao_pistas, max: 10 },
-                recuperacao_total: { score: state.scores.recuperacao_total, max: 10 },
                 total: { score: totalScore, max: 50 }
             },
             qualityFlags: state.qcFlags,
             detailedAnswers: state.answers,
-            recallDetails: state.itemsToRecall
+            recallDetails: state.itemsToRecall,
+            responseTimings: state.responseTimings
         };
     };
 
@@ -781,74 +911,70 @@
 
     const exportJSON = () => {
         const data = getExportData();
-        downloadFile(`MAT_Resultados_${new Date().toISOString()}.json`, JSON.stringify(data, null, 2), 'application/json');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        downloadFile(`MAT_Digital_${timestamp}.json`, JSON.stringify(data, null, 2), 'application/json');
     };
 
     const exportCSV = () => {
         const data = getExportData();
-        let csv = 'Dominio,Pontos,Maximo\n';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        
+        let csv = 'Domínio,Pontuação,Máximo,Percentual\n';
         Object.entries(data.scores).forEach(([key, value]) => {
-            if (key !== 'recuperacao_total') {
-               csv += `${key},${value.score},${value.max}\n`;
-            }
+            const percent = ((value.score / value.max) * 100).toFixed(1);
+            const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+            csv += `${label},${value.score},${value.max},${percent}%\n`;
         });
-        downloadFile(`MAT_Resultados_${new Date().toISOString()}.csv`, csv, 'text/csv');
+        
+        csv += '\nPerfil\n';
+        csv += `Idade,${data.profile.age}\n`;
+        csv += `Escolaridade,${data.profile.education}\n`;
+        csv += `Data,${new Date(data.testDate).toLocaleString('pt-BR')}\n`;
+        
+        downloadFile(`MAT_Digital_${timestamp}.csv`, csv, 'text/csv;charset=utf-8;');
     };
-    
+
     const exportPDF = () => {
         const data = getExportData();
         const doc = new jsPDF();
-        
-        doc.setFontSize(18);
-        doc.text("Resultados - M@T Digital", 105, 20, { align: 'center' });
-        
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+        doc.setFontSize(20);
+        doc.setFont('helvetica', 'bold');
+        doc.text("M@T Digital - Relatório de Resultados", 105, 20, { align: 'center' });
         doc.setFontSize(12);
-        doc.text(`Data do Teste: ${new Date(data.testDate).toLocaleString('pt-BR')}`, 20, 40);
-        doc.text(`Duração: ${data.durationSeconds} segundos`, 20, 48);
-        doc.text(`Idade: ${data.profile.age} anos`, 20, 56);
-        doc.text(`Escolaridade: ${data.profile.education} anos`, 20, 64);
+        doc.text(`Data: ${new Date(data.testDate).toLocaleString('pt-BR')}`, 20, 45);
         
-        doc.setFontSize(14);
-        doc.text("Pontuação por Domínio", 20, 80);
+        const tableData = Object.entries(data.scores).map(([key, value]) => {
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            return [label, `${value.score} / ${value.max}`];
+        });
         
-        const tableData = Object.entries(data.scores).filter(([k]) => k !== 'recuperacao_total').map(([key, value]) => [key, `${value.score} / ${value.max}`]);
         doc.autoTable({
-            startY: 85,
+            startY: 55,
             head: [['Domínio', 'Pontuação']],
             body: tableData,
             theme: 'grid'
         });
 
-        let finalY = doc.autoTable.previous.finalY + 15;
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Pontuação Total: ${data.scores.total.score} / ${data.scores.total.max}`, 20, finalY);
-
         if (data.qualityFlags.length > 0) {
-            finalY += 15;
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text("Alertas de Qualidade:", 20, finalY);
-            doc.setFont('helvetica', 'normal');
-            finalY += 7;
+            let y = doc.autoTable.previous.finalY + 15;
+            doc.text("Observações de Qualidade:", 20, y);
+            y += 8;
             data.qualityFlags.forEach(flag => {
-                doc.text(`- ${flag}`, 25, finalY);
-                finalY += 7;
+                doc.text(`- ${flag}`, 25, y);
+                y += 7;
             });
         }
-
-        finalY = doc.internal.pageSize.height - 20;
-        doc.setFontSize(8);
-        doc.text("Este é um relatório de rastreio. A interpretação deve ser feita por um profissional qualificado no contexto de uma avaliação clínica completa.", 105, finalY, { align: 'center' });
-
-        doc.save(`MAT_Resultados_${new Date().toISOString()}.pdf`);
+        
+        doc.save(`MAT_Digital_${timestamp}.pdf`);
     };
 
-    // --- DELEGAÇÃO DE EVENTOS ---
+    // --- EVENT DELEGATION ---
     app.addEventListener('click', (e) => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
-
+        e.preventDefault();
         const action = target.dataset.action;
 
         switch(action) {
@@ -856,138 +982,142 @@
                 state.screen = 'profile';
                 render();
                 break;
-            case 'start_instructions': {
-                 state.profile.age = document.getElementById('age').value;
-                 state.profile.education = document.getElementById('education').value;
-                 const errorDiv = document.getElementById('profile-error');
-                 if (state.profile.age && state.profile.education) {
-                     state.screen = 'instructions';
-                     render();
-                 } else {
-                     errorDiv.textContent = 'Por favor, preencha a idade e a escolaridade.';
-                 }
+            case 'back_to_welcome':
+                state.screen = 'welcome';
+                render();
                 break;
-            }
+            case 'back_to_profile':
+                 state.screen = 'profile';
+                 render();
+                break;
+            case 'start_instructions':
+                const age = document.getElementById('age').value;
+                const education = document.getElementById('education').value;
+                const errorDiv = document.getElementById('profile-error');
+                if (!age || !education) {
+                    errorDiv.textContent = '⚠️ Por favor, preencha todos os campos obrigatórios.';
+                    return;
+                }
+                state.profile.age = age;
+                state.profile.education = education;
+                state.screen = 'instructions';
+                render();
+                break;
             case 'start_test':
                 startTest();
                 break;
             case 'next_item':
                 nextItem();
                 break;
-            case 'select_option': {
+            case 'select_option':
                 state.selectedAnswer = target.dataset.value;
-                app.querySelectorAll('[data-action="select_option"]').forEach(btn => btn.classList.remove('selected'));
+                document.querySelectorAll('[data-action="select_option"]').forEach(btn => btn.classList.remove('selected'));
                 target.classList.add('selected');
-                
                 const confirmBtn = app.querySelector('[data-action="submit_answer"], [data-action="submit_cued_recall"]');
                 if (confirmBtn) {
                     confirmBtn.disabled = false;
                     confirmBtn.classList.remove('btn-disabled');
                 }
                 break;
-            }
-            case 'submit_answer': {
+            case 'submit_answer':
+                if (state.isFeedbackActive) return;
                 let answer;
                 const currentItem = testData.blocks[state.block]?.[state.itemIndex];
-                if (!currentItem || state.isFeedbackActive) return;
+                if (!currentItem) return;
 
-                if (currentItem.type.includes('mc')) {
-                    answer = state.selectedAnswer;
+                if (currentItem.type.includes('input')) {
+                    answer = document.getElementById('input-answer')?.value;
                 } else {
-                    answer = document.getElementById('input-answer').value;
+                    answer = state.selectedAnswer;
                 }
-                if (answer === null || answer.trim() === '') return;
-                
-                if (state.block === 'codificacao' && currentItem.type === 'question_mc') {
+                if (!answer || answer.trim() === '') return;
+
+                if (state.block === 'codificacao' && (currentItem.type === 'question_mc' || currentItem.type === 'sentence_questions')) {
                     state.isFeedbackActive = true;
                     target.disabled = true;
                     target.classList.add('btn-disabled');
-
                     processAnswer(answer, false);
                     
-                    const correctAnswer = currentItem.answer;
-                    const isCorrect = String(answer).toLowerCase() === String(correctAnswer).toLowerCase();
-
-                    const optionButtons = app.querySelectorAll('.option-btn');
-                    optionButtons.forEach(btn => {
+                    const correctAnswer = currentItem.type === 'sentence_questions' ? currentItem.questions[state.subItemIndex].answer : currentItem.answer;
+                    const isCorrect = answer.toLowerCase() === correctAnswer.toLowerCase();
+                    
+                    document.querySelectorAll('.option-btn').forEach(btn => {
                         btn.disabled = true;
-                        const btnValue = btn.dataset.value;
-                        if (btnValue.toLowerCase() === correctAnswer.toLowerCase()) {
+                        if (btn.dataset.value.toLowerCase() === correctAnswer.toLowerCase()) {
                             btn.classList.add('correct');
-                        }
-                        if (btnValue.toLowerCase() === answer.toLowerCase() && !isCorrect) {
+                        } else if (btn.dataset.value === answer && !isCorrect) {
                             btn.classList.add('incorrect');
                         }
                     });
                     
-                    const feedbackText = isCorrect ? "Certo." : `Incorreto. A resposta correta era ${correctAnswer}.`;
-                    
+                    const feedbackText = isCorrect ? "Correto!" : `A resposta correta era: ${correctAnswer}`;
                     speak(feedbackText, () => {
-                        // Callback é chamado quando o áudio termina
-                        nextItem();
-                        state.isFeedbackActive = false;
+                        setTimeout(() => {
+                            state.isFeedbackActive = false;
+                            nextItem();
+                        }, 500);
                     });
-
                 } else {
                     processAnswer(answer, true);
                 }
                 break;
-            }
-            case 'toggle_recall_item': {
+            case 'toggle_recall_item':
                 const type = target.dataset.type;
                 if (type === 'word') {
-                    const selectedCount = app.querySelectorAll('.option-btn.selected').length;
-                    const selectionCounter = document.getElementById('selection-count');
+                    const selectedCount = document.querySelectorAll('.option-btn.selected').length;
                     if (target.classList.contains('selected')) {
                         target.classList.remove('selected');
                     } else if (selectedCount < 5) {
                         target.classList.add('selected');
                     }
-                    const newCount = app.querySelectorAll('.option-btn.selected').length;
-                    selectionCounter.textContent = newCount;
-
-                    app.querySelectorAll('.option-btn:not(.selected)').forEach(btn => {
-                        btn.disabled = (newCount >= 5);
+                    const newCount = document.querySelectorAll('.option-btn.selected').length;
+                    document.getElementById('selection-count').textContent = newCount;
+                    document.querySelectorAll('.option-btn:not(.selected)').forEach(btn => {
+                         btn.disabled = (newCount >= 5);
+                         btn.classList.toggle('btn-disabled', newCount >= 5);
                     });
                 } else {
-                     target.classList.toggle('selected');
+                    target.classList.toggle('selected');
                 }
                 break;
-            }
-            case 'submit_free_word_recall': {
-                const selectedItems = [...app.querySelectorAll('.option-btn.selected')].map(btn => btn.textContent);
-                processFreeRecall(selectedItems, 'word');
+            case 'submit_free_word_recall':
+                const selectedWords = [...document.querySelectorAll('#recall-grid .option-btn.selected')].map(btn => btn.textContent.trim());
+                processFreeRecall(selectedWords, 'word');
                 state.recallStep = 'sentences';
                 render();
                 break;
-            }
-            case 'submit_free_sentence_recall': {
-                const selectedItems = [...app.querySelectorAll('.option-btn.selected')].map(btn => btn.textContent);
-                processFreeRecall(selectedItems, 'sentence_1');
-                processFreeRecall(selectedItems, 'sentence_2');
+            case 'submit_free_sentence_recall':
+                const selectedSentenceItems = [...document.querySelectorAll('#recall-grid .option-btn.selected')].map(btn => btn.textContent.trim());
+                processFreeRecall(selectedSentenceItems, 'sentence_1');
+                processFreeRecall(selectedSentenceItems, 'sentence_2');
                 nextItem();
                 break;
-            }
             case 'submit_cued_recall':
                 if (state.selectedAnswer) {
                     processCuedRecallAnswer(state.selectedAnswer, JSON.parse(target.dataset.item));
                 }
                 break;
             case 'restart':
-                resetState();
-                render();
+                if (confirm('Tem certeza que deseja reiniciar?')) {
+                    resetState();
+                    render();
+                }
                 break;
             case 'export_pdf': exportPDF(); break;
             case 'export_json': exportJSON(); break;
             case 'export_csv': exportCSV(); break;
         }
     });
+    
+    app.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+            e.preventDefault();
+            const submitBtn = document.querySelector('[data-action="submit_answer"]');
+            if (submitBtn && !submitBtn.disabled) submitBtn.click();
+        }
+    });
 
     init();
     </script>
-
 </body>
 </html>
-
-
-
