@@ -17,6 +17,7 @@ Este repositório contém um aplicativo de página única (SPA) que executa o M\
 * **Sem instalação/servidor**: basta abrir o `index.html` no navegador.
 * **Interface responsiva (Tailwind via CDN)**, tipografia *Inter* e componentes com foco em legibilidade clínica.
 * **Síntese de voz (pt-BR)** para instruções, perguntas e *feedback* imediato na fase de codificação.
+* **Reconhecimento de voz (pt-BR)** com Web Speech API (fallback configurável para Whisper via proxy), permitindo respostas faladas em todas as etapas.
 * **Domínios avaliados e pontuação máxima**
 
   * Codificação (palavras/frases) … **10**
@@ -93,10 +94,10 @@ Você pode ajustar:
 O aplicativo calcula automaticamente:
 
 * Escores por domínio e **pontuação total (0–50)**.
-* **Evocação total** (soma de livre + pistas).
+* Indicadores derivados (JSON) com **itens elegíveis por pistas** e **evocação total** (livre + pistas).
 * *Flags* de qualidade (para interpretação contextual).
 
-> **Importante**: Este software **não fornece pontos de corte normativos**. Interpretações clínicas devem considerar **idade, escolaridade e contexto clínico** (ex.: comorbidades, depressão, uso de fármacos, déficits sensoriais) e **referenciais normativos/locais** do M\@T quando aplicável.
+> **Importante**: Este software **não fornece pontos de corte normativos**. Interpretações clínicas devem considerar **idade, escolaridade e contexto clínico** (ex.: comorbidades, depressão, uso de fármacos, déficits sensoriais) e **referenciais normativos/locais** do M\@T quando aplicável. Quando nenhum item segue para a etapa com pistas, o aplicativo sinaliza “Nenhum item precisou de pista” e atribui automaticamente os 10 pontos correspondentes, preservando o somatório máximo de 50.
 
 ---
 
@@ -110,22 +111,37 @@ Relatório com cabeçalho (data, duração, idade/escolaridade), tabela de domí
 
 ```json
 {
-  "testVersion": "MAT-Digital 1.0.4",
+  "version": "MAT-Digital 1.0.4",
   "testDate": "2025-09-24T00:00:00.000Z",
-  "durationSeconds": 123,
+  "durationSec": 241,
+  "orientationReference": "2025-09-24T00:00:00.000Z",
   "profile": { "age": 72, "education": 8 },
   "scores": {
-    "codificacao": { "score": 0, "max": 10 },
-    "orientacao": { "score": 0, "max": 5 },
-    "semantica": { "score": 0, "max": 15 },
-    "recuperacao_livre": { "score": 0, "max": 10 },
-    "recuperacao_pistas": { "score": 0, "max": 10 },
-    "recuperacao_total": { "score": 0, "max": 10 },
-    "total": { "score": 0, "max": 50 }
+    "codificacao": { "score": 10, "max": 10 },
+    "orientacao": { "score": 5, "max": 5 },
+    "semantica": { "score": 15, "max": 15 },
+    "recuperacao_livre": { "score": 10, "max": 10 },
+    "recuperacao_pistas": { "score": 10, "max": 10 },
+    "total": { "score": 50, "max": 50 }
   },
-  "qualityFlags": ["..."],
-  "detailedAnswers": { "codificacao-8-0": "Cereja", "...": "..." },
-  "recallDetails": [{ "cue": "Qual era a fruta?", "answer": "Cereja", "recalled": "free" }, "..."]
+  "derived": {
+    "cuedEligible": 0,
+    "cuedRecovered": 0,
+    "cuedAutoCredit": 10,
+    "recuperacao_total": 10,
+    "voice": { "supported": true, "used": true, "utterances": 18 }
+  },
+  "qc": [],
+  "answers": {
+    "codificacao-7-0": { "given": "Cereja", "correct": "Cereja", "isCorrect": true, "rt": 945 }
+  },
+  "recall": [
+    { "id": "recall-0", "cue": "Qual era a fruta?", "answer": "Cereja", "recalled": "free" }
+  ],
+  "rt": [],
+  "speechLog": [
+    { "t": 1695500000000, "text": "cereja", "mode": "mc" }
+  ]
 }
 ```
 
